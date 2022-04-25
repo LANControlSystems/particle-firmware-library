@@ -40,6 +40,7 @@ extern "C" {
 #include "memfault-firmware-sdk/components/include/memfault/core/platform/system_time.h"
 #include "memfault-firmware-sdk/components/include/memfault/core/reboot_reason_types.h"
 #include "memfault-firmware-sdk/components/include/memfault/core/reboot_tracking.h"
+#include "memfault-firmware-sdk/components/include/memfault/core/task_watchdog.h"
 #include "memfault-firmware-sdk/components/include/memfault/core/sdk_assert.h"
 #include "memfault-firmware-sdk/components/include/memfault/core/trace_event.h"
 #include "memfault-firmware-sdk/components/include/memfault/core/data_packetizer.h"

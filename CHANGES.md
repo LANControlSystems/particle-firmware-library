@@ -1,3 +1,74 @@
+### Changes between Memfault SDK 0.30.3 and SDK 0.30.2 - April 25, 2022
+
+#### :chart_with_upwards_trend: Improvements
+
+- Particle's Device OS port improvements:
+  - A user initiated reboot will now be recorded as a User Shutdown instead of a
+    Low Power reset
+  - A custom hardware_version can now be specified using the `hardware_version`
+    argument when initializing the Memfault library
+  - Default hardware version now uses the `PLATFORM_NAME` macro instead of
+    `PRODUCT_SERIES` macro
+- Zephyr port improvements
+  - Exposed lower level APIs to Memfault's HTTP post implementation to allow
+    easier custom handling. See
+    [`ports/zephyr/include/memfault/ports/zephyr/http.h`](ports/zephyr/include/memfault/ports/zephyr/http.h)
+    for more details
+
+#### :house: Internal
+
+- Misc README documentation improvements
+
+### Changes between Memfault SDK 0.30.2 and SDK 0.30.1 - April 12, 2022
+
+- Fix a build regression on nRF Connect SDK v1.2 caused by the new Kconfig flag
+  `CONFIG_MEMFAULT_HTTP_USES_MBEDTLS`
+
+### Changes between Memfault SDK 0.30.1 and SDK 0.30.0 - April 6, 2022
+
+#### :chart_with_upwards_trend: Improvements
+
+- Fix stack selection when in ISR context in some Zephyr versions
+- Fix a build error when building Zephyr with `CONFIG_NORDIC_SECURITY_BACKEND`
+  enabled. New Kconfig flag `CONFIG_MEMFAULT_HTTP_USES_MBEDTLS` can be used to
+  manually control this configuration if necessary (default should be set
+  correctly in most cases)
+
+#### :house: Internal
+
+- Fix CI unit test build error from older version of gcc
+
+### Changes between Memfault SDK 0.30.0 and SDK 0.29.1 - Mar 31, 2022
+
+#### :rocket: New Features
+
+- Added a Task Watchdog optional module. This can be used to monitor and trigger
+  a fault in the case of a task or thread that becomes stuck. See information in
+  [components/include/memfault/core/task_watchdog.h](components/include/memfault/core/task_watchdog.h)
+  for how to configure and use the module
+
+#### :chart_with_upwards_trend: Improvements
+
+- Fix compilation when building for a Zephyr target that does not have the
+  `CONFIG_ARM_MPU` flag enabled
+- Fix compilation errors to enable compatibility with Zephyr v3.0.0
+
+### Changes between Memfault SDK 0.29.1 and SDK 0.29.0 - Mar 16, 2022
+
+#### :house: Internal
+
+- Updated Memfault Diagnostic GATT Service (MDS) based on feedback. This service
+  can be used to transparently forward data collected by the SDK to a Bluetooth
+  Low Energy gateway and proxied to the cloud. See
+  [ports/include/memfault/ports/ble/mds.h](ports/include/memfault/ports/ble/mds.h#L1)
+- Updated Mbed OS invoke commands to be more resilient against python package
+  conflicts
+
+#### :boom: Breaking Changes
+
+- If your project is based on Zephyr < 2.6, you now need to explicitly set
+  `CONFIG_OPENOCD_SUPPORT=y` in your `prj.conf`
+
 ### Changes between Memfault SDK 0.29.0 and SDK 0.28.2 - Feb 28, 2022
 
 #### :rocket: New Features
