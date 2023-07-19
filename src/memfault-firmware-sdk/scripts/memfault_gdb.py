@@ -54,7 +54,7 @@ except ImportError:
     error_str = """
     This script can only be run within gdb!
     """
-    raise Exception(error_str)  # noqa: B904  (no raise-from in Python 2.7)
+    raise ImportError(error_str)  # noqa: B904  (no raise-from in Python 2.7)
 
 
 # Note: not using `requests` but using the built-in http.client instead, so
@@ -144,8 +144,8 @@ def _pc_in_vector_table(register_list, exception_number, analytics_props):
         curr_pc = _get_register_value(register_list, "pc")
         exc_handler, _ = _read_register(0x0 + vtor + (exception_number * 4))
         exc_handler &= ~0x1  # Clear thumb bit
-        return exc_handler == curr_pc
-    except Exception:  # noqa
+        return exc_handler == curr_pc  # noqa: TRY300
+    except Exception:
         analytics_props["pc_in_vtor_check_error"] = {"traceback": traceback.format_exc()}
         return False
 
@@ -178,12 +178,12 @@ For example,
     exc_return = _get_register_value(register_list, "lr")
     if exc_return >> 28 != 0xF:
         print("{} {}".format(fault_start_prompt, gdb_how_to_fault_prompt))
-        raise Exception("LR no longer set to EXC_RETURN value")
+        raise RuntimeError("LR no longer set to EXC_RETURN value")
 
     # DCRS - armv8m only - only relevant when chaining secure and non-secure exceptions
     # so pretty unlikely to be hit in a try test scenario
     if exc_return & (1 << 5) == 0:
-        raise Exception("DCRS exception unwinding unimplemented")
+        raise RuntimeError("DCRS exception unwinding unimplemented")
 
     if not _pc_in_vector_table(register_list, exception_number, analytics_props):
         analytics_props["displayed_fault_prompt"] = True
@@ -197,7 +197,7 @@ For example,
         )
         if "Y" not in y.upper():
             print(gdb_how_to_fault_prompt)
-            raise Exception("User did not confirm being at beginning of exception")
+            raise RuntimeError("User did not confirm being at beginning of exception")
     else:
         analytics_props["displayed_fault_prompt"] = False
 
@@ -232,7 +232,7 @@ def should_capture_section(section):
     if is_debug_info_section(section):
         return False
     # Sometimes these get flagged incorrectly as READONLY:
-    if filter(lambda n: n in section.name, (".heap", ".bss", ".data", ".stack")):
+    if any(filter(lambda n: n in section.name, (".heap", ".bss", ".data", ".stack"))):
         return True
     # Only grab non-readonly stuff:
     return not section.read_only
@@ -347,7 +347,7 @@ class XtensaCoredumpArch(CoredumpArch):
         try:
             for core_id in range(0, self.num_cores):
                 result.append(self._read_registers(core_id, gdb_thread, analytics_props))
-        except Exception:  # noqa
+        except Exception:
             analytics_props["core_reg_collection_error"] = {"traceback": traceback.format_exc()}
 
         return result
@@ -458,7 +458,7 @@ class ArmCortexMCoredumpArch(CoredumpArch):
                 section.data = inferior.read_memory(section.addr, section.size)
                 cd_writer.add_section(section)
                 analytics_props["{}_ok".format(short_name)] = True
-            except Exception:  # noqa
+            except Exception:
                 analytics_props["{}_collection_error".format(short_name)] = {
                     "traceback": traceback.format_exc()
                 }
@@ -466,19 +466,43 @@ class ArmCortexMCoredumpArch(CoredumpArch):
         try:
             cd_writer.armv67_mpu = self._try_collect_mpu_settings()
             print("Collected MPU config")
-        except Exception:  # noqa
+        except Exception:
             analytics_props["mpu_collection_error"] = {"traceback": traceback.format_exc()}
+
+    @staticmethod
+    def _merge_memory_regions(regions):
+        """Take a set of memory regions and merge any overlapping regions"""
+        regions.sort(key=lambda x: x.addr)  # Sort the regions based on starting address
+        merged_regions = []
+
+        for region in regions:
+            if not merged_regions:
+                merged_regions.append(region)
+            else:
+                prev_region = merged_regions[-1]
+                if region.addr <= prev_region.addr + prev_region.size:
+                    prev_region.size = max(
+                        prev_region.size, region.addr + region.size - prev_region.addr
+                    )
+                else:
+                    merged_regions.append(region)
+
+        return merged_regions
 
     def guess_ram_regions(self, elf_sections):
         capturable_elf_sections = list(filter(should_capture_section, elf_sections))
 
         def _is_ram(base_addr):
             # See Table B3-1 ARMv7-M address map in "ARMv7-M Architecture Reference Manual"
-            return base_addr in (0x20000000, 0x60000000, 0x80000000)
+            return (base_addr & 0xF0000000) in (0x20000000, 0x30000000, 0x60000000, 0x80000000)
 
-        capture_size = 1024 * 1024  # Capture up to 1MB
-        base_addrs = map(lambda section: section.addr & 0xE0000000, capturable_elf_sections)
-        filtered_addrs = set(filter(_is_ram, base_addrs))
+        capture_size = 1024 * 1024  # Capture up to 1MB per section
+        for section in capturable_elf_sections:
+            section.size = capture_size
+
+        # merge any overlapping sections to make the core a little more efficient
+        capturable_elf_sections = self._merge_memory_regions(capturable_elf_sections)
+        filtered_addrs = set(filter(_is_ram, (s.addr for s in capturable_elf_sections)))
         # Capture up to 1MB for each region
         return [(addr, capture_size) for addr in filtered_addrs]
 
@@ -489,9 +513,19 @@ class ArmCortexMCoredumpArch(CoredumpArch):
         # best way. Call this, rip out the first element in each row...that's the register name
 
         #
-        # NOTE: We use the "all" argument below because on some versions of gdb "msp, psp, etc" are not considered part of them
-        # core set. This will also dump all the fpu registers which we don't collect but thats fine
-        info_reg_all_list = gdb.execute("info reg all", to_string=True)
+        # NOTE: Using the 'all-registers' command below, because on some
+        # versions of gdb "msp, psp, etc" are not considered part of them core
+        # set. This will also dump all the fpu registers which we don't collect
+        # but thats fine. 'info all-registers' is the preferred command, where
+        # 'info reg [all]' is arch-specific, see:
+        # https://sourceware.org/gdb/onlinedocs/gdb/Registers.html
+        try:
+            info_reg_all_list = gdb.execute("info all-registers", to_string=True)
+        except gdb.error:
+            # Some versions of gdb don't support 'all' and return an error, fall
+            # back to 'info reg'
+            info_reg_all_list = gdb.execute("info reg", to_string=True)
+
         return (lookup_registers_from_list(self, info_reg_all_list, analytics_props),)
 
 
@@ -539,11 +573,10 @@ def _try_read_register(arch, frame, lookup_name, register_list, analytics_props,
             _add_reg_collection_error_analytic(
                 arch, analytics_props, lookup_name, "<unavailable> value"
             )
-    except Exception:  # noqa
+    except Exception:
         _add_reg_collection_error_analytic(
             arch, analytics_props, lookup_name, traceback.format_exc()
         )
-        pass
 
 
 def lookup_registers_from_list(arch, info_reg_all_list, analytics_props):
@@ -600,9 +633,8 @@ def lookup_registers_from_list(arch, info_reg_all_list, analytics_props):
     # if we can't patch the registers, we'll just fallback to the active state
     try:
         check_and_patch_reglist_for_fault(register_list, analytics_props)
-    except Exception:  # noqa
+    except Exception:
         analytics_props["fault_register_recover_error"] = {"traceback": traceback.format_exc()}
-        pass
 
     return register_list
 
@@ -630,11 +662,11 @@ class MemfaultCoredumpBlockType(object):  # (IntEnum):  # trying to be python2.7
 
 
 class MemfaultCoredumpWriter(object):
-    def __init__(self, arch):
-        self.device_serial = "DEMOSERIALNUMBER"
-        self.software_version = "1.0.0"
-        self.software_type = "main"
-        self.hardware_revision = "DEVBOARD"
+    def __init__(self, arch, device_serial, software_type, software_version, hardware_revision):
+        self.device_serial = device_serial
+        self.software_version = software_version
+        self.software_type = software_type
+        self.hardware_revision = hardware_revision
         self.trace_reason = 5  # Debugger Halted
         self.regs = {}
         self.sections = []
@@ -719,6 +751,15 @@ class Section(object):
             and self.data == other.data
         )
 
+    def __str__(self):
+        return "Section(addr=0x%x, size=0x%x, name='%s', read_only=%s, data_len=%d)" % (
+            self.addr,
+            self.size,
+            self.name,
+            self.read_only,
+            len(self.data),
+        )
+
 
 def parse_maintenance_info_sections(output):
     fn_match = re.search(r"`([^']+)', file type", output)
@@ -751,7 +792,8 @@ def read_memory_until_error(inferior, start, size, read_size=4 * 1024):
     try:
         for addr in range(start, end, read_size):
             data += bytes(inferior.read_memory(addr, min(read_size, end - addr)))
-    except Exception as e:  # Catch gdbserver read exceptions -- not sure what exception classes can get raised here
+    except Exception as e:
+        # Catch gdbserver read exceptions -- not sure what exception classes can get raised here
         print(e)
     return data
 
@@ -759,7 +801,7 @@ def read_memory_until_error(inferior, start, size, read_size=4 * 1024):
 def _create_http_connection(base_uri):
     url = urlparse(base_uri)
     if url.hostname is None:
-        raise Exception("Invalid base URI, must be http(s)://hostname")
+        raise RuntimeError("Invalid base URI, must be http(s)://hostname")
     if url.scheme == "http":
         conn_class = HTTPConnection
         default_port = 80
@@ -786,7 +828,7 @@ def _http(method, base_uri, path, headers=None, body=None):
     body = response.read()
     try:
         json_body = loads(body)
-    except Exception:  # noqa
+    except Exception:
         json_body = None
     conn.close()
     return status, reason, json_body
@@ -961,7 +1003,7 @@ def upload_symbols_if_needed(config, elf_fn, software_type, software_version):
                 print("Failed to upload symbols: {}".format(e))
 
 
-# FIXME: Duped from tools/gdb_memfault.py
+# FIXME: Duped from mflt.tools/gdb_memfault.py
 class MemfaultGdbArgumentParseError(Exception):
     pass
 
@@ -1063,7 +1105,7 @@ def settings_load():
     try:
         with open(MEMFAULT_CONFIG.json_path, "rb") as f:
             return load(f)
-    except Exception:  # noqa
+    except Exception:
         return {}
 
 
@@ -1175,7 +1217,7 @@ class GdbMemfaultPostChunkBreakpoint(gdb.Breakpoint):
         if status != 202:
             print("Chunk Post Failed with Http Status Code {}".format(status))
             print("Reason: {}".format(reason))
-            print("ERROR: Disabling Memfault GDB Chunk Handler and Halting" "")
+            print("ERROR: Disabling Memfault GDB Chunk Handler and Halting")
             self.enabled = False
             return True
 
@@ -1191,7 +1233,7 @@ class MemfaultPostChunk(MemfaultGdbCommand):
     """
 
     GDB_CMD = "memfault install_chunk_handler"
-    USER_TRANSPORT_SEND_CHUNK_HANDLER = [
+    USER_TRANSPORT_SEND_CHUNK_HANDLER = [  # noqa: RUF012
         "memfault_data_export_chunk",
         "user_transport_send_chunk_data",
     ]
@@ -1309,6 +1351,12 @@ class MemfaultPostChunk(MemfaultGdbCommand):
 class MemfaultCoredump(MemfaultGdbCommand):
     """Captures a coredump from the target and uploads it to Memfault for analysis"""
 
+    ALPHANUM_SLUG_DOTS_COLON_REGEX = r"^[-a-zA-Z0-9_\.\+:]+$"
+    ALPHANUM_SLUG_DOTS_COLON_SPACES_PARENS_SLASH_REGEX = r"^[-a-zA-Z0-9_\.\+: \(\)\[\]/]+$"
+    DEFAULT_CORE_DUMP_HARDWARE_REVISION = "DEVBOARD"
+    DEFAULT_CORE_DUMP_SERIAL_NUMBER = "DEMOSERIALNUMBER"
+    DEFAULT_CORE_DUMP_SOFTWARE_TYPE = "main"
+    DEFAULT_CORE_DUMP_SOFTWARE_VERSION = "1.0.0"
     GDB_CMD = "memfault coredump"
 
     def _check_permission(self, analytics_props):
@@ -1332,8 +1380,8 @@ Memfault will never share your data, coredumps, binary files (.elf)
 or other proprietary information with other companies or anyone else.
 
 Proceed? [y/n]
-"""  # This last newline is important! If it's not here, the last line is not shown on Windows!
-        )
+"""
+        )  # This last newline is important! If it's not here, the last line is not shown on Windows!
         if "Y" not in y.upper():
             print("Aborting...")
             analytics_props["user_input"] = y
@@ -1372,7 +1420,7 @@ Proceed? [y/n]
             ANALYTICS.error("Missing login or key")
             return
 
-        cd_writer, elf_fn = self.build_coredump_writer(parsed_args.region, analytics_props)
+        cd_writer, elf_fn = self.build_coredump_writer(parsed_args, analytics_props)
         if not cd_writer:
             return
 
@@ -1380,7 +1428,7 @@ Proceed? [y/n]
 
         # TODO: try calling memfault_platform_get_device_info() and use returned info if present
         # Populate the version based on hash of the .elf for now:
-        software_version = "1.0.0-md5+{}".format(elf_hash[:8])
+        software_version = cd_writer.software_version + "-md5+{}".format(elf_hash[:8])
         cd_writer.software_version = software_version
 
         if not parsed_args.no_symbols:
@@ -1423,7 +1471,10 @@ Proceed? [y/n]
         parser = MemfaultGdbArgumentParser(description=MemfaultCoredump.__doc__)
         parser.add_argument(
             "source",
-            help="Source of coredump: 'live' (default) or 'storage' (target's live RAM or stored coredump)",
+            help=(
+                "Source of coredump: 'live' (default) or 'storage' (target's live RAM or stored"
+                " coredump)"
+            ),
             default="live",
             choices=["live", "storage"],
             nargs="?",
@@ -1438,19 +1489,78 @@ Proceed? [y/n]
         )
 
         def _auto_int(x):
-            return int(x, 0)
+            try:
+                return int(x, 0)
+            except ValueError:
+                return int(gdb.parse_and_eval(x))
 
         parser.add_argument(
             "--region",
             "-r",
-            help="Specify memory region and size in bytes to capture. This option can be passed multiple times."
-            " Example: `-r 0x20000000 1024 0x80000000 512` will capture 1024 bytes starting at 0x20000000."
-            " When no regions are passed, the command will attempt to infer what to"
-            " capture based on the sections in the loaded .elf.",
+            help=(
+                "Specify memory region and size in bytes to capture. This option can be passed"
+                " multiple times. Example: `-r 0x20000000 1024 0x80000000 512` will capture 1024"
+                " bytes starting at 0x20000000. When no regions are passed, the command will"
+                " attempt to infer what to capture based on the sections in the loaded .elf."
+            ),
             type=_auto_int,
             nargs=2,
             action="append",
         )
+
+        def _character_check(regex, name):
+            def _check_inner(input):
+                pattern = re.compile(regex)
+                if not pattern.match(input):
+                    raise argparse.ArgumentTypeError(
+                        "Invalid characters in {}: {}.".format(name, input)
+                    )
+
+                return input
+
+            return _check_inner
+
+        parser.add_argument(
+            "--device-serial",
+            type=_character_check(self.ALPHANUM_SLUG_DOTS_COLON_REGEX, "device serial"),
+            help=(
+                "Overrides the device serial that will be reported in the core dump. (default: {})".format(
+                    self.DEFAULT_CORE_DUMP_SERIAL_NUMBER
+                )
+            ),
+            default=self.DEFAULT_CORE_DUMP_SERIAL_NUMBER,
+        )
+        parser.add_argument(
+            "--software-type",
+            type=_character_check(self.ALPHANUM_SLUG_DOTS_COLON_REGEX, "software type"),
+            help=(
+                "Overrides the software type that will be reported in the core dump. (default: {})".format(
+                    self.DEFAULT_CORE_DUMP_SOFTWARE_TYPE
+                )
+            ),
+            default=self.DEFAULT_CORE_DUMP_SOFTWARE_TYPE,
+        )
+        parser.add_argument(
+            "--software-version",
+            type=_character_check(
+                self.ALPHANUM_SLUG_DOTS_COLON_SPACES_PARENS_SLASH_REGEX, "software version"
+            ),
+            help=(
+                "Overrides the software version that will be reported in the core dump."
+                " (default: {})".format(self.DEFAULT_CORE_DUMP_SOFTWARE_VERSION)
+            ),
+            default=self.DEFAULT_CORE_DUMP_SOFTWARE_VERSION,
+        )
+        parser.add_argument(
+            "--hardware-revision",
+            type=_character_check(self.ALPHANUM_SLUG_DOTS_COLON_REGEX, "hardware revision"),
+            help=(
+                "Overrides the hardware revision that will be reported in the core dump."
+                " (default: {})".format(self.DEFAULT_CORE_DUMP_HARDWARE_REVISION)
+            ),
+            default=self.DEFAULT_CORE_DUMP_HARDWARE_REVISION,
+        )
+
         return populate_config_args_and_parse_args(parser, unicode_args, config)
 
     @staticmethod
@@ -1464,7 +1574,7 @@ Proceed? [y/n]
             analytics_props["xtensa_target"] = target
         return None
 
-    def build_coredump_writer(self, regions, analytics_props):
+    def build_coredump_writer(self, parsed_args, analytics_props):
         # inferior.architecture() is a relatively new API, so let's use "show arch" instead:
         show_arch_output = gdb.execute("show arch", to_string=True).lower()
         current_arch_matches = re.search("currently ([^)]+)", show_arch_output)
@@ -1535,20 +1645,30 @@ This command requires that you use the 'load' command to load a binary/symbol (.
         if not has_debug_info:
             print("WARNING: no debug info sections found!")
             print(
-                "Hints: did you compile with -g or similar flags? did you inadvertently strip the binary?"
+                "Hints: did you compile with -g or similar flags? did you inadvertently strip the"
+                " binary?"
             )
 
-        cd_writer = MemfaultCoredumpWriter(arch)
+        cd_writer = MemfaultCoredumpWriter(
+            arch,
+            parsed_args.device_serial,
+            parsed_args.software_type,
+            parsed_args.software_version,
+            parsed_args.hardware_revision,
+        )
         cd_writer.regs = arch.get_current_registers(thread, analytics_props)
 
         arch.add_platform_specific_sections(cd_writer, inferior, analytics_props)
 
+        regions = parsed_args.region
         if regions is None:
             print(
-                "No capturing regions were specified; will default to capturing the first 1MB for each used RAM address range."
+                "No capturing regions were specified; will default to capturing the first 1MB for"
+                " each used RAM address range."
             )
             print(
-                "Tip: optionally, you can use `--region <addr> <size>` to manually specify capturing regions and increase capturing speed."
+                "Tip: optionally, you can use `--region <addr> <size>` to manually specify"
+                " capturing regions and increase capturing speed."
             )
 
             regions = arch.guess_ram_regions(sections)
@@ -1696,7 +1816,7 @@ class AnalyticsTracker(Thread):
                 # Throttle a bit
                 sleep(0.2)
 
-            except Exception:  # noqa
+            except Exception:  # noqa: S110
                 pass  # Never fail due to analytics requests erroring out
 
 
@@ -1711,12 +1831,12 @@ def _track_script_sourced():
         from platform import mac_ver
 
         mac_version = mac_ver()[0]
-    except Exception:  # noqa
+    except Exception:
         mac_version = ""
 
     try:
         gdb_version = gdb.execute("show version", to_string=True).strip().split("\n")[0]
-    except Exception:  # noqa
+    except Exception:
         gdb_version = ""
 
     ANALYTICS.track(

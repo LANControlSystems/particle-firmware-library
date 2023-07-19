@@ -16,12 +16,46 @@
 extern "C" {
 #endif
 
+#include "memfault-firmware-sdk/components/include/memfault/core/compiler.h"
+
 //! Command to crash the device, for example, to trigger a coredump to be captured.
 //! It takes one number argument, which is the crash type:
 //! - 0: crash by MEMFAULT_ASSERT(0)
 //! - 1: crash by jumping to 0xbadcafe
 //! - 2: crash by unaligned memory store
 int memfault_demo_cli_cmd_crash(int argc, char *argv[]);
+
+#if MEMFAULT_COMPILER_ARM_CORTEX_M
+
+//! Command which will generate a HardFault
+int memfault_demo_cli_cmd_hardfault(int argc, char *argv[]);
+
+//! Command which will generate a BusFault on Cortex-M hardware
+int memfault_demo_cli_cmd_busfault(int argc, char *argv[]);
+
+//! Command which will generate a Memory Management fault on Cortex-M hardware
+int memfault_demo_cli_cmd_memmanage(int argc, char *argv[]);
+
+//! Command which will generate a UsageFault on Cortex-M hardware
+int memfault_demo_cli_cmd_usagefault(int argc, char *argv[]);
+
+//! Read a 32-bit memory address and print the value. Can be used to test
+//! specific faults due to protected regions
+int memfault_demo_cli_loadaddr(int argc, char *argv[]);
+
+#endif  // MEMFAULT_COMPILER_ARM_CORTEX_M
+
+#if MEMFAULT_COMPILER_ARM_V7_A_R
+//! Trigger a data abort on an ARMv7-A/R chip
+int memfault_demo_cli_cmd_dataabort(int argc, char *argv[]);
+
+//! Trigger a prefetch abort on an ARMv7-A/R chip
+int memfault_demo_cli_cmd_prefetchabort(int argc, char *argv[]);
+
+#endif  // MEMFAULT_COMPILER_ARM_V7_A_R
+
+//! Command which will generate an assert
+int memfault_demo_cli_cmd_assert(int argc, char *argv[]);
 
 //! Command to exercise the MEMFAULT_TRACE_EVENT API, capturing a
 //! Trace Event with the error reason set to "MemfaultDemoCli_Error".
@@ -45,12 +79,6 @@ int memfault_demo_cli_cmd_get_core(int argc, char *argv[]);
 //! Command to post a coredump using the http client.
 //! It takes no arguments.
 int memfault_demo_cli_cmd_post_core(int argc, char *argv[]);
-
-//! Command to print out the next Memfault data to send and print as a curl command.
-//! It takes zero or one string argument, which can be:
-//! - curl : (default) prints a shell command to post the next data chunk to Memfault's API (using echo, xxd and curl)
-//! - hex : hexdumps the data
-int memfault_demo_cli_cmd_print_chunk(int argc, char *argv[]);
 
 //! Command to clear a coredump.
 //! It takes no arguments.

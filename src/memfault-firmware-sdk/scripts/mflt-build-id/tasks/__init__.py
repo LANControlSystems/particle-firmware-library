@@ -3,10 +3,6 @@
 # See License.txt for details
 #
 
-import invoke
+from mflt.testing.task_templates import make_test_task
 
-
-@invoke.task
-def test(ctx):
-    """Run tests."""
-    ctx.run("pytest", pty=True)
+test = make_test_task()

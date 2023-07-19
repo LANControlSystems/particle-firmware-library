@@ -1,3 +1,822 @@
+### Changes between Memfault SDK 1.1.1 and 1.1.2 - July 11, 2023
+
+#### :chart_with_upwards_trend: Improvements
+
+- Improve compatibility in
+  [reboot reason tracking](ports/emlib/rmu_reboot_tracking.c) and
+  [watchdog implementation](ports/emlib/wdog_software_watchdog.c) on Silicon
+  Labs Series 2 MCUs
+
+- Zephyr:
+  - Fix a build error when `CONFIG_MEMFAULT_LOGGING=n`, see
+    [#56](https://github.com/memfault/memfault-firmware-sdk/issues/56). Thanks
+    to @JordanYates for reporting this issue!
+  - Fix a potential bug in the Memfault Log Backend when
+    `CONFIG_LOG_MODE_IMMEDIATE=y` when flushing of fault logs during a crash
+
+### Changes between Memfault SDK 1.1.0 and 1.1.1 - June 30, 2023
+
+#### :chart_with_upwards_trend: Improvements
+
+- Reduce the amount of error logs emitted by the MbedTLS port HTTP client while
+  polling for session established. This regressed in SDK version 1.1.0.
+
+### Changes between Memfault SDK 1.0.1 and 1.1.0 - June 29, 2023
+
+#### :chart_with_upwards_trend: Improvements
+
+- New built-in metrics 🎉 !
+
+  - FreeRTOS Idle Task runtime percentage metric: `idle_task_run_time_percent`.
+    This is automatically enabled for FreeRTOS builds with the correct tracing
+    options enabled, see
+    [ports/include/memfault/ports/freertos/metrics.h](ports/include/memfault/ports/freertos/metrics.h)
+    for details on how to enable or disable this metric.
+  - MbedTLS metrics for maximum and current memory used: `mbedtls_mem_max_bytes`
+    and `mbedtls_mem_used_bytes`. These are automatically enabled for ESP-IDF
+    projects, see
+    [ports/mbedtls/memfault_mbedtls_metrics.c](ports/mbedtls/memfault_mbedtls_metrics.c)
+    for usage details
+  - Renamed the built-in LwIP metrics added in SDK version 1.0.1 from
+    `Tcp_Drop_Count`/`Tcp_Rx_Count`/`Tcp_Tx_Count`,
+    `Udp_Drop_Count`/`Udp_Rx_Count`/`Udp_Tx_Count` to be all lowercase
+    `tcp_drop_count`/`tcp_rx_count`/`tcp_tx_count`,
+    `udp_drop_count`/`udp_rx_count`/`udp_tx_count`
+  - Add the following automatically enabled WiFi performance metrics to the
+    ESP-IDF port:
+    - `wifi_connected_time_ms`
+    - `wifi_disconnect_count`
+    - `wifi_sta_min_rssi`
+
+- Fix a bug in the [mbedtls port](ports/mbedtls/) causing an infinite loop under
+  certain error conditions on TLS handshake
+
+- Zephyr:
+
+  - Improve log flushing in the Memfault log backend during fault when deferred
+    logging is enabled. This ensures the latest log statements are included in
+    the coredump log data, when the `CONFIG_MEMFAULT_LOGGING_ENABLE=y`
+
+- ESP-IDF:
+
+  - `ESP_ERROR_CHECK()` assert coredumps will now correctly show as assert in
+    the Memfault coredump analysis view, instead of "Hard Fault"
+
+### Changes between Memfault SDK 1.0.1 and 1.0.0 - June 9, 2023
+
+#### :chart_with_upwards_trend: Improvements
+
+- Zephyr:
+
+  - Improve the quality of Zephyr stack usage detection when capturing less than
+    the full stack contents for each thread. This feature was originally
+    released in SDK `0.43.0`.
+
+- ESP-IDF:
+
+  - Add Memfault Metrics tracking LwIP runtime statistics (packet counts). A new
+    Kconfig flag `CONFIG_MEMFAULT_LWIP_METRICS` controls this feature, which is
+    enabled by default. The LwIP metrics helper is available for non-ESP-IDF
+    projects using LwIP, see
+    [`ports/lwip/memfault_lwip_metrics.c`](ports/lwip/memfault_lwip_metrics.c)
+    for details
+
+### Changes between Memfault SDK 1.0.0 and 0.43.3 - June 1, 2023
+
+🎉🎉🎉
+
+The Memfault Firmware SDK is now version `1.0.0` as of this release! Note that
+this is just a procedural change, there are no breaking backwards-incompatible
+changes in this release. We forgot to update our major version back in 2019, but
+better late than never 😅! Hopefully the remaining 281,474,976,710,656 versions
+are enough 🤞.
+
+🎉🎉🎉
+
+#### :chart_with_upwards_trend: Improvements
+
+- Zephyr:
+
+  - Add a new built-in metric `FileSystem_BytesFree` for tracking VFS bytes
+    free. This is enabled automatically when `CONFIG_FILE_SYSTEM=y`. Use the
+    Kconfig option `MEMFAULT_FS_BYTES_FREE_VFS_PATH` to set the VFS mount point
+    to monitor utilization (default value is `/lfs1`). The Kconfig option
+    `MEMFAULT_FS_BYTES_FREE_METRIC` can be used to disable the metric.
+  - Update a few spots in the Zephyr demo CLI to use `shell_print` instead of
+    `MEMFAULT_LOG` for command usage errors
+
+### Changes between Memfault SDK 0.43.3 and 0.43.2 - May 22, 2023
+
+#### :chart_with_upwards_trend: Improvements
+
+- Zephyr:
+
+  - Add more granular Kconfig settings to control what's collected in
+    [`memfault_zephyr_coredump_get_regions()`](ports/zephyr/common/memfault_platform_coredump_regions.c).
+    Default settings are identical to before this change.
+
+    - `CONFIG_MEMFAULT_COREDUMP_COLLECT_STACK_REGIONS`
+    - `CONFIG_MEMFAULT_COREDUMP_COLLECT_KERNEL_REGION`
+    - `CONFIG_MEMFAULT_COREDUMP_COLLECT_TASKS_REGIONS`
+
+  - Fix a build error when an application is configured without
+    `CONFIG_HEAP_MEM_POOL_SIZE=y` (i.e. no `kmalloc` in use).
+
+- Fix a build error when building the
+  [nRF9160 example](examples/nrf-connect-sdk/nrf9160) on nRF-Connect SDK v2.3.0.
+
+- ESP-IDF:
+
+  - Add support for upcoming v5.1 release of the ESP-IDF SDK
+  - Add support in the [ESP32 example app](examples/esp32) for the ESP32-C6 chip
+
+### Changes between Memfault SDK 0.43.2 and 0.43.1 - May 3, 2023
+
+#### :chart_with_upwards_trend: Improvements
+
+- Fix a bug 🐛 where metrics accumulated with `memfault_metrics_heartbeat_add()`
+  would no longer be included in the serialized heartbeat data. This regression
+  occurred in `0.42.0`.
+
+### Changes between Memfault SDK 0.43.1 and 0.43.0 - April 26, 2023
+
+#### :chart_with_upwards_trend: Improvements
+
+- Zephyr:
+
+  - The `z_NmiHandlerSet` function is renamed for the upcoming Zephyr 3.4.
+    Support the new name. Fixes
+    [#49](https://github.com/memfault/memfault-firmware-sdk/issues/49). Thanks
+    @mbolivar-nordic for filing this issue!
+
+### Changes between Memfault SDK 0.43.0 and 0.42.1 - April 18, 2023
+
+#### :rocket: New Features
+
+- Add coredump support for Cortex-R chips (ARMv7-R)
+
+#### :chart_with_upwards_trend: Improvements
+
+- Add a QEMU-based FreeRTOS example project, find it under
+  [examples/freertos](examples/freertos)
+- Switch `printf` function attribute to use `__printf__`, to avoid collision
+  with user code that redefines the `printf` token
+
+- Zephyr:
+
+  - Compute thread stack high watermark values on-target when capturing a
+    coredump. This enables showing high watermark information in the Memfault
+    coredump analysis view without capturing the full stack for a thread
+
+### Changes between Memfault SDK 0.42.1 and 0.42.0 - April 4, 2023
+
+#### :chart_with_upwards_trend: Improvements
+
+- Zephyr:
+
+  - Remove `LEGACY_CONFIG_PATH` Kconfig selection, now that the `zephyr.h`
+    header is no longer used as of Memfault SDK `0.42.0`. This option no longer
+    exists after Zephyr v3.3.0. Fixes
+    [#48](https://github.com/memfault/memfault-firmware-sdk/issues/48)
+
+- Minor changes to the [ESP8266 port](ports/esp8266_sdk) to improve
+  out-of-the-box compilation
+- Add new functionality to output buffered log data via
+  `memfault_log_export_logs()`. See the
+  [`log.h` header](components/include/memfault/core/log.h) for detailed usage.
+
+### Changes between Memfault SDK 0.42.0 and 0.41.2 - Mar 22, 2023
+
+#### :chart_with_upwards_trend: Improvements
+
+- Zephyr:
+
+  - Add option to capture full thread stacks for classifying stack overflows and
+    determining stack high watermarks. This feature is enabled by setting
+    `CONFIG_MEMFAULT_COREDUMP_FULL_THREAD_STACKS=y`
+  - Remove usage of the `zephyr.h` header in preparation for Zephyr v3.4.0.
+    Thanks to @jfischer-no for the patch!
+
+- `memfault_gdb.py`:
+  - Add support for exporting data from GCC 12 compiled symbol files
+  - Add arguments to override device serial ID, software type, software version,
+    and hardware revision
+
+#### :boom: Breaking Changes
+
+- Metrics:
+  - Integer type metrics (signed/unsigned) will reset to NULL when not set
+    during a heartbeat interval. This NULL value will be discarded by Memfault
+    when received. The previous behavior was to reset to 0 which makes
+    discarding values difficult as 0 is a valid value for these types. For more
+    info please see the
+    [Metrics](https://docs.memfault.com/docs/mcu/metrics-api#setting-metric-values)
+    docs.
+
+### Changes between Memfault SDK 0.41.2 and SDK 0.41.1 - Mar 10, 2023
+
+#### :chart_with_upwards_trend: Improvements
+
+- Zephyr / nRF-Connect SDK:
+  - Improve compatibility with Zephyr pre-3.0 deferred logging, when using the
+    Memfault backend
+  - Add an option to the
+    [examples/nrf-connect-sdk/nrf5](examples/nrf-connect-sdk/nrf5) to enable
+    capturing all of RAM in a coredump.
+
+### Changes between Memfault SDK 0.41.1 and SDK 0.41.0 - Mar 1, 2023
+
+#### :chart_with_upwards_trend: Improvements
+
+- Zephyr / nRF-Connect SDK:
+
+  - Fix a bug 🐛 in the Memfault Logging backend, that causes coredump saving to
+    fail when building with Zephyr versions before 3.0 (nRF-Connect SDK < 2.0).
+    This regression was introduced in Memfault Firmware SDK **0.33.3**.
+
+- ESP-IDF:
+  - Updated the [ESP32 example app](examples/esp32) for the ESP32-C3 on ESP-IDF
+    v5.0.1 to use size optimizations, to more closely mirror real world
+    environments and codesize.
+  - Fix a compilation error in the [ESP32 example app](examples/esp32) when
+    targeting ESP-IDF >=4.4,<4.4.3 . This regression was introduced in Memfault
+    Firmware SDK **0.39.1**.
+
+### Changes between Memfault SDK 0.41.0 and SDK 0.40.0 - Feb 22, 2023
+
+#### :rocket: New Features
+
+- ESP-IDF:
+  - Added coredump support for the ESP32-C3 (RISC-V) chip. Thank you to @jlubawy
+    for your work on this in
+    [#42](https://github.com/memfault/memfault-firmware-sdk/pull/42) 🎉!
+
+### Changes between Memfault SDK 0.40.0 and SDK 0.39.1 - Feb 15, 2023
+
+#### :bomb: Breaking Changes
+
+- ESP-IDF:
+  - The Kconfig `CONFIG_MEMFAULT_AUTOMATIC_INIT` has been deprecated and is no
+    longer supported. Users of this Kconfig should refactor their application to
+    call `memfault_boot` during initialization. Use of this Kconfig now results
+    in a build error. For more information please see
+    https://docs.memfault.com/docs/mcu/esp32-guide#initializing-memfault
+
+### Changes between Memfault SDK 0.39.1 and SDK 0.39.0 - Feb 3, 2023
+
+#### :rocket: New Features
+
+- **Experimental**
+  - CMSIS-Pack support
+  - Out Of Memory reboot reason added
+
+#### :chart_with_upwards_trend: Improvements
+
+- ESP-IDF:
+  - The default implementation of `memfault_platform_coredump_get_regions` is
+    changed to collect the current active stack, .bss, .data, and .heap regions.
+    Additionally if you are using ESP-IDF >= 4.4.0, the SDK will prioritize
+    collecting FreeRTOS regions containing task TCB and stack data.
+  - Assert coredumps are now labeled with the Assert reason
+
+### Changes between Memfault SDK 0.39.0 and SDK 0.38.0 - Feb 3, 2023
+
+#### :boom: Breaking Changes
+
+- Breaking changes to the
+  [`memfault_freertos_get_task_regions()`](ports/freertos/src/memfault_freertos_ram_regions.c)
+  function, which can be used to capture FreeRTOS tasks when coredumps are sized
+  smaller than all available RAM. The function will now, by default, capture a
+  truncated copy of each FreeRTOS TCB, instead of the complete structure. This
+  makes better use of coredump storage space; the TCB structures can be very
+  large (>1kB), but Memfault only needs the first few fields for coredump
+  decoding. The configuration flag `MEMFAULT_PLATFORM_FREERTOS_TCB_SIZE` (see
+  [`default_config.h`](components/include/memfault/default_config.h)) can be set
+  to `0` in `memfault_platform_config.h` to return to the previous behavior.
+
+### Changes between Memfault SDK 0.38.0 and SDK 0.37.2 - Feb 1, 2023
+
+#### :rocket: New Features
+
+- Enable coredumps on the ESP32-S2 and ESP32-S3 chips.
+
+### Changes between Memfault SDK 0.37.2 and SDK 0.37.1 - Jan 31, 2023
+
+#### :chart_with_upwards_trend: Improvements
+
+- Zephyr:
+  - Support building with `CONFIG_POSIX_API=y` in the Zephyr port HTTP client
+- ESP-IDF:
+  - Reduce the spamminess of the esp32 example app logging
+- Update [`scripts/memfault_gdb.py`](scripts/memfault_gdb.py):
+  - When explicitly listing a region to insert into the coredump via
+    `memfault coredump --region x y`, now support parseable GDB expressions for
+    the range arguments instead of requiring integer values. Thanks to @alvarop
+    for this patch
+    [#43](https://github.com/memfault/memfault-firmware-sdk/pull/43) !
+  - Use the `info all-registers` command when dumping registers, instead of the
+    deprecated `info registers all` command, which works better on certain
+    arch/monitor setups. Thanks to @alvarop for this patch
+    [#44](https://github.com/memfault/memfault-firmware-sdk/pull/44) !
+
+### Changes between Memfault SDK 0.37.1 and SDK 0.37.0 - Jan 17, 2023
+
+#### :chart_with_upwards_trend: Improvements
+
+- FreeRTOS
+  - Add support for collecting truncated TCBs. This is particularly useful with
+    limited coredump space. Enable by defining
+    `MEMFAULT_PLATFORM_FREERTOS_TCB_SIZE` in `memfault_platform_config.h".
+- ESP-IDF
+  - Add support for esp32s2/s3 platforms to the esp32 example application
+
+#### :house: Internal
+
+- Fixup some documentation typos/errors
+- Add support for Python 3.10
+
+### Changes between Memfault SDK 0.37.0 and SDK 0.36.1 - Dec 16, 2022
+
+#### :chart_with_upwards_trend: Improvements
+
+- Built-in Metrics
+
+  - Add `MemfaultSdkMetric_UnexpectedRebootDidOccur` metric. This metric uses
+    the platform's reboot register and any reasons by the SDK function
+    `memfault_reboot_tracking_mark_reset_imminent` to classify a reboot. When
+    reboot tracking determines a reboot is unexpected, this metric is set to 1.
+    Otherwise this metric is 0.
+
+- [ModusToolbox:tm: Software](https://www.infineon.com/cms/en/design-support/tools/sdk/modustoolbox-software/)
+
+  - Add log capture during coredump to port
+
+- Demo CLI
+  - Add `mflt test loadaddr` command. This comamnd is used to test specific
+    faults due to protected regions
+
+#### :boom: Breaking Changes
+
+- Built-in Metrics
+  - The built-in metric, `MemfaultSdkMetric_UnexpectedRebootDidOccur`,
+    classifies all reboot reasons greater than or equal to
+    `kMfltRebootReason_UnknownError` **or** equal to `kMfltRebootReason_Unknown`
+    as "unexpected reboots". It is recommended to ensure your platform's
+    implementation of `memfault_reboot_reason_get` classifies the reboot
+    register values as accurately and precisely as possible to avoid incorrect
+    metric values.
+
+### Changes between Memfault SDK 0.36.1 and SDK 0.36.0 - Dec 9, 2022
+
+#### :chart_with_upwards_trend: Improvements
+
+- ESP-IDF:
+  - Fix a bug 🐛 in the [ESP32 example app](examples/esp32), where wifi join
+    fails when using versions of ESP-IDF prior to 5.0
+
+### Changes between Memfault SDK 0.36.0 and SDK 0.35.0 - Dec 6, 2022
+
+#### :chart_with_upwards_trend: Improvements
+
+- ESP-IDF:
+
+  - Add support for
+    [just-released ESP-IDF v5](https://github.com/espressif/esp-idf/releases/tag/v5.0)
+    🎉! Thanks to @jlubawy and the patch supplied in #39 for this, very much
+    appreciated!
+  - Add an auto-OTA (and auto-WiFi-join) feature to the
+    [ESP32 example app](examples/esp32)- enabled by default but can be disabled
+    with Kconfig
+
+- The [Heap Stats tracing component](https://mflt.io/mcu-heap-stats) has been
+  revamped to make more efficient usage of the bookeeping structure. Usage
+  should be the same as before, but now should provide more data without
+  significantly expanding the memory utilization.
+
+### Changes between Memfault SDK 0.35.0 and SDK 0.34.2 - Nov 22, 2022
+
+#### :rocket: New Features
+
+- **Experimental** Custom Data Recording API
+  - Allows sending custom data collected over the course of a recording period
+
+#### :chart_with_upwards_trend: Improvements
+
+- Zephyr:
+  - Modify heap stats to only collect info during allocations/deallocations from
+    threads
+- ESP-IDF:
+  - ESP32 reboot tracking into RTC noinit
+- nRF5 SDK:
+  - NRF5 coredump regions -Wunused-macros, fixes warning for unused macros
+
+#### :house: Internal
+
+- Experiment: pytest as fw test frontend
+- README: Add additional details on port integration
+
+### Changes between Memfault SDK 0.34.2 and SDK 0.34.1 - Nov 8, 2022
+
+#### :chart_with_upwards_trend: Improvements
+
+- [ModusToolbox:tm: Software](https://www.infineon.com/cms/en/design-support/tools/sdk/modustoolbox-software/)
+  - Updates SDK for compatibility with MTB 3.0
+
+### Changes between Memfault SDK 0.34.1 and SDK 0.34.0 - Nov 7, 2022
+
+#### :chart_with_upwards_trend: Improvements
+
+- nRF-Connect:
+  - Updates for Zephyr upmerge 2022.11.03 (see #35 + #36)
+  - Fix watchdog test (`mflt test hang`) in
+    [`examples/nrf-connect-sdk/nrf5/`](examples/nrf-connect-sdk/nrf5/)
+- Zephyr:
+  - Set `CONFIG_QEMU_ICOUNT=n` in
+    [`examples/zephyr/qemu/`](examples/zephyr/qemu/), which fixes the emulated
+    target execution speed
+  - Add heap free and stack usage Metrics to
+    [`examples/zephyr/qemu/`](examples/zephyr/qemu/)
+- Update the `memfault_demo_cli_cmd_assert()` test command to take a single arg,
+  which is used in `MEMFAULT_ASSERT_RECORD()`. This enables testing that assert
+  variant from the CLI.
+
+### Changes between Memfault SDK 0.34.0 and SDK 0.33.5 - Nov 1, 2022
+
+#### :chart_with_upwards_trend: Improvements
+
+- Misc ESP32 [port](ports/esp_idf) &
+  [example app](examples/esp32/apps/memfault_demo_app) improvements
+  - Added diagnostic print line containing Build Id at boot up
+  - Improved messaging displayed when using `memfault_ota_check` test command
+  - Example app now prints device info on bootup
+  - Fix an issue where incremental build (`idf.py build && idf.py build`) would
+    report a nuisance failure.
+  - Flatten + simplify the directory structure of the QEMU based example project
+- A new [`ports/mbedtls`](ports/mbedtls) is available, which implements a basic
+  Mbed TLS client for performing Memfault data upload.
+- Zephyr: Collect sysheap stats using the
+  [Memfault Heap Tracking](https://mflt.io/mcu-heap-stats) component. This is
+  configured with the `CONFIG_MEMFAULT_HEAP_STATS` Kconfig option (enabled by
+  default), and will track allocations done with `k_malloc()`.
+- Fix an enum-mismatch warning in `memfault_metrics.c` when using the ARMCC v5
+  compiler.
+
+#### :boom: Breaking Changes
+
+- If you are using the ESP32 HTTP Client, the Memfault Project Key is now
+  configured directly via the
+  [ESP32 Project Configuration System](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/kconfig.html).
+  You need to do the following:
+  1. Remove the `g_mflt_http_client_config` in your platform port
+  2. Add `CONFIG_MEMFAULT_PROJECT_KEY="YOUR_PROJECT_KEY"` to your projects
+     `sdkconfig.defaults`
+
+### Changes between Memfault SDK 0.33.4 and SDK 0.33.5 - Oct 19, 2022
+
+#### :chart_with_upwards_trend: Improvements
+
+- nRF-Connect: Update the nRF9160 example application,
+  `examples/nrf-connect-sdk/nrf9160`, to build and run correctly with
+  nRF-Connect SDK v2.1.0
+- Zephyr: Add an example Zephyr application targeting the QEMU board
+- ESP-IDF:
+  - Add a configuration option for setting the ESP-IDF HTTP client timeout value
+  - Fix compilation for the ESP32-S3. _Note: coredumps are currently only
+    supported on the ESP32, not the ESP32-S2, -S3, or -C3. This change only
+    fixes compiling for the -S3 platform_
+  - Add support for ESP-IDF v4.2.3
+
+#### :house: Internal
+
+- Support building the unit tests with GCC 12
+- Miscellaneous fixes to unit test infrastructure to better support building in
+  Mac OSX
+
+### Changes between Memfault SDK 0.33.3 and SDK 0.33.4 - Sept 15, 2022
+
+#### :chart_with_upwards_trend: Improvements
+
+- Zephyr port updates:
+  - Handle thread abort in the task stack capture hook. Previous to this change,
+    aborted tasks would remain on the captured task list, and restarting the
+    task would create a duplicate entry.
+
+### Changes between Memfault SDK 0.33.2 and SDK 0.33.3 - Sept 14, 2022
+
+#### :chart_with_upwards_trend: Improvements
+
+- Zephyr port updates:
+  - Add a call to `LOG_PANIC()` before running the Memfault fault handler, to
+    flush any deferred logs before the reboot
+
+### Changes between Memfault SDK 0.33.1 and SDK 0.33.2 - Sept 7, 2022
+
+#### :chart_with_upwards_trend: Improvements
+
+- Zephyr port updates:
+  - fix a few minor nuisance build warnings on niche Zephyr configurations
+  - enable `LOG_OUTPUT` when `MEMFAULT_LOGGING_ENABLE` is enabled- this fixes a
+    build error if all other log backends are disabled. thanks to @balaji-nordic
+    for this fix! closes #33
+- Add a debug cli test command to the nRF-Connect SDK port for printing the OTA
+  url
+
+### Changes between Memfault SDK 0.33.0 and SDK 0.33.1 - Aug 26, 2022
+
+#### :chart_with_upwards_trend: Improvements
+
+- Fix a :bug: in the heap stats component (#32), thanks @christophgreen for
+  reporting it!
+- Zephyr port updates:
+  - add support for the newly namespaced Zephyr include path in upcoming Zephyr
+    v3.2 (`#include <zephyr.h>` → `#include <zephyr/zephyr.h>`). The includes
+    were moved
+    [prior to v3.1](https://github.com/zephyrproject-rtos/zephyr/commit/53ef68d4598b2f9005c5da3fc0b860ca1999d350)
+    of Zephyr, but v3.2
+    [changes the backwards compatibility support to opt-in](https://github.com/zephyrproject-rtos/zephyr/commit/1ec0c6f5308937dc8e77acc2567d6f53cdd7a74e).
+    The Memfault SDK is now updated to support both.
+  - fix Zephyr Memfault log capture to have the correct prefix in the decoded
+    output when using LOG2 - previously all log lines regardless of level would
+    have an `E` prefix (regression introduced in Memfault SDK version 0.32.0)
+  - fix Zephyr Memfault log capture when in `CONFIG_LOG_MODE_IMMEDIATE` and
+    using LOG2 to capture the full log line instead of each logged character as
+    a separate line.
+
+#### :house: Internal
+
+- Zephyr port folder for `v2.x` migrated to `common`, now that Zephyr v1.14
+  support has been removed (done in v0.32.0 of the Memfault SDK)
+- Update README's for the example projects to match the new demo shell command
+  structure (`crash 1` → `test_hardfault`, etc).
+- Tidy up nrf9160 example app Kconfig setup
+- Fix parallel unit test invocation
+
+### Changes between Memfault SDK 0.33.0 and SDK 0.32.2 - Aug 18, 2022
+
+#### :chart_with_upwards_trend: Improvements
+
+- Extend [memfault demo shell](components/demo/src/memfault_demo_shell.c) to
+  support terminals that only emit CR for line endings
+- nRF5 SDK Updates:
+  - Added a [software watchdog](https://mflt.io/root-cause-watchdogs) reference
+    port for nRF5 SDK which makes use of the RTC Peripheral. See
+    [ports/nrf5_sdk/software_watchdog.c](ports/nrf5_sdk/software_watchdog.c) for
+    more details.
+  - Updated [nRF5 example app](examples/nrf5/apps/memfault_demo_app/) to make
+    use of hardware and new software watchdog port.
+- Zephyr Port Updates:
+  - Added Kconfig option to fallback to using `printk` by default when no
+    logging is enabled. This can be disabled by setting
+    `CONFIG_MEMFAULT_PLATFORM_LOG_FALLBACK_TO_PRINTK=n`.
+- nRF Connect SDK Updates:
+  - Fixed a :bug: which could result in download errors when using
+    [Memfault nRF Connect SDK FOTA client](ports/nrf-connect-sdk/zephyr/include/memfault/nrfconnect_port/fota.h)
+    and enabled client in example application by default.
+  - Added new example application for trying Memfault with nRF53 & nRF52 based
+    development kits. See
+    [examples/nrf-connect-sdk/nrf5](examples/nrf-connect-sdk/nrf5) for more
+    details.
+
+### Changes between Memfault SDK 0.32.2 and SDK 0.32.1 - Aug 16, 2022
+
+#### :chart_with_upwards_trend: Improvements
+
+- Zephyr port: added a fix for upcoming Zephyr 3.2 compatibility, thanks
+  @nordicjm for the fix!
+
+### Changes between Memfault SDK 0.32.1 and SDK 0.32.0 - Aug 8, 2022
+
+#### :house: Internal
+
+- Added default config header for PSoC 6 port
+  [ports/cypress/psoc6/psoc6_default_config.h](ports/cypress/psoc6/psoc6_default_config.h)
+  so user doesn't have to create it
+
+### Changes between Memfault SDK 0.32.0 and SDK 0.31.5 - Aug 8, 2022
+
+#### :chart_with_upwards_trend: Improvements
+
+- [ModusToolbox:tm: Software](https://www.infineon.com/cms/en/design-support/tools/sdk/modustoolbox-software/)
+  port updates
+  - Added heartbeat metrics for heap and Wi-Fi performance tracking when using
+    the default port for
+    [CAT1A (PSoC:tm: 6)](https://github.com/Infineon/mtb-pdl-cat1). See
+    [ports/cypress/psoc6/memfault_platform_core.c](ports/cypress/psoc6/memfault_platform_core.c)
+    for more details
+  - Fixed reboot reason reported when PSoC 6 is fully reset to report "Power On
+    Reset" instead of "Unknown"
+- Zephyr port updates
+  - Memfault logs (eg `MEMFAULT_LOG_DEBUG()` etc) are now routed to the Zephyr
+    logging infrastructure. The typical set of Kconfig options for Memfault logs
+    are available (`CONFIG_MEMFAULT_LOG_LEVEL_WRN` etc). See details in
+    "Breaking Changes" below for enabling logs in your project.
+  - Added a new Kconfig option, `MEMFAULT_ZEPHYR_FATAL_HANDLER`, which can be
+    used to disable the Zephyr fault handler print facilities.
+  - Streamline support for nRF-Connect SDK based applications that don't need
+    the Memfault root certificates (eg nRF53 or nRF52 devices), via a new
+    Kconfig option `MEMFAULT_ROOT_CERT_STORAGE`, to avoid a nuisance build error
+
+#### :boom: Breaking Changes
+
+- Users will no longer see internal Memfault log output by default, but will
+  have to enable it explicitly to see the output:
+
+  ```ini
+  # enable LOG
+  CONFIG_LOG=y
+  # not required- enabling the Memfault logging component enables including the
+  # log buffer in coredumps
+  CONFIG_MEMFAULT_LOGGING_ENABLE=y
+
+  # if on pre-v3.1.0 zephyr, you can choose either the default LOG v1
+  # implementation, or select a LOG2 mode to enable LOG2. on zephyr 3.1.0+, LOG
+  # v1 is removed and LOG v2 is now the only log implementation
+  # CONFIG_LOG2_MODE_DEFERRED=y
+
+  # make sure to select a log backend to see the output
+  CONFIG_LOG_BACKEND_UART=y
+  ```
+
+  The log statements affected by this change are likely only the internal
+  Memfault SDK logs (`MEMFAULT_LOG_DEBUG()` etc), unless those macros are used
+  in the user application.
+
+- Removed support for Zephyr LTS release 1.14 as it was superseded by
+  [LTS V2 almost a year ago now](https://www.zephyrproject.org/zephyr-lts-v2-release/).
+  A project using this release of Zephyr must target a memfault-firmware-sdk
+  release less than 0.32.0.
+
+#### :house: Internal
+
+- More logically grouped Kconfig settings in Zephyr example app's
+  [prj.conf](examples/zephyr/apps/memfault_demo_app/prj.conf)
+- Fixed a few typos in particle port documentation
+- Simplified compilation steps for the
+  [nRF91 sample test app](examples/nrf-connect-sdk/nrf9160/memfault_demo_app)
+  when compiling with older releases of the nRF Connect SDK and refreshed the
+  example to target the v2.0.2 release by default
+- Updated default demo CLI commands to better align with
+  [our suggested integration test commands](https://mflt.io/mcu-test-commands).
+  The default set now looks like this:
+
+  ```bash
+  mflt> help
+  clear_core: Clear an existing coredump
+  drain_chunks: Flushes queued Memfault data. To upload data see https://mflt.io/posting-chunks-with-gdb
+  export: Export base64-encoded chunks. To upload data see https://mflt.io/chunk-data-export
+  get_core: Get coredump info
+  get_device_info: Get device info
+  test_assert: Trigger memfault assert
+  test_busfault: Trigger a busfault
+  test_hardfault: Trigger a hardfault
+  test_memmanage: Trigger a memory management fault
+  test_usagefault: Trigger a usage fault
+  test_log: Writes test logs to log buffer
+  test_log_capture: Trigger capture of current log buffer contents
+  test_reboot: Force system reset and track it with a trace event
+  test_trace: Capture an example trace event
+  help: Lists all commands
+  ```
+
+### Changes between Memfault SDK 0.31.5 and SDK 0.31.4 - July 22, 2022
+
+#### :chart_with_upwards_trend: Improvements
+
+- Zephyr port: enable proper backtraces for Zephyr `__ASSERT()` macro on
+  aarch32/cortex_m. Prior to this fix, crashes from `__ASSERT()` triggering
+  would show an incorrect PC/LR for the active thread.
+
+- Support for pre-release nRF Connect SDK v2.0.99 and Zephyr > v3.1:
+  - Upcoming nRF Connect SDK and Zephyr releases removed logging v1. Add build
+    support for these changes, and keep backwards compatibility for previous nRF
+    Connect SDK/Zephyr releases
+  - Correct an issue in the Memfault logging v2 backend, when the system was
+    invoked from an ISR context. This could happen due to a recent change, in
+    Memfault SDK v0.31.1, where the Zephyr fatal informational logs were output
+    from `memfault_platform_reboot()` by default. It did not impact the
+    collected backtrace, but it would show a nuisance `__ASSERT()` in the
+    console output, if `CONFIG_ASSERT=y`.
+
+#### :house: Internal
+
+- Fix a compilation issue in the Dialog example app from the removal of
+  `memfault_demo_cli_cmd_print_chunk()` in Memfault SDK release v0.31.4.
+
+### Changes between Memfault SDK 0.31.4 and SDK 0.31.3 - July 19, 2022
+
+#### :chart_with_upwards_trend: Improvements
+
+- ESP32 port: add new Kconfig option, `CONFIG_MEMFAULT_AUTOMATIC_INIT`, that can
+  be explicitly set to `n` to skip automatically initializing the Memfault SDK
+  on boot. This can be useful if Memfault SDK initialization needs to be
+  deferred to application start.
+
+- Zephyr port: add Kconfig options,
+  `CONFIG_MEMFAULT_INIT_PRIORITY`/`CONFIG_MEMFAULT_INIT_LEVEL_POST_KERNEL` for
+  controlling the Memfault SDK initialization level and priority. This can be
+  useful when needing Memfault to initialize earlier in the system startup
+  sequence, for example for diagnosing crashes in an early driver
+  initialization.
+
+- Partial support, still in progress, for NRF Connect SDK + Zephyr v3.1:
+  - Remove reference to the now-removed Kconfig symbol,
+    `NET_SOCKETS_OFFLOAD_TLS` to enable building without warnings. **NOTE:** if
+    mbedtls is enabled (`CONFIG_MBEDTLS=y`), but is _not_ being used for HTTP
+    transfers (eg, mbedtls is used for security functions, but the device does
+    not use HTTP for transferring data), it may be necessary to explicitly set
+    `CONFIG_MEMFAULT_HTTP_USES_MBEDTLS=n`.
+
+#### :house: Internal
+
+- Zephyr port: remove an unused header file,
+  `ports/zephyr/common/memfault_zephyr_http.h`
+
+- Remove `memfault_demo_cli_cmd_print_chunk()` demo function.
+  `memfault_data_export_dump_chunks()` can be used instead, which is intended to
+  be used with the "Chunks Debug" UI in the Memfault web application- see
+  [here](https://mflt.io/chunk-data-export) for more details
+
+### Changes between Memfault SDK 0.31.3 and SDK 0.31.2 - July 8, 2022
+
+#### :chart_with_upwards_trend: Improvements
+
+- Support Zephyr v3.1+ by conditionally compiling out Logger v1 code, thanks to
+  @tejlmand for the patch!
+
+### Changes between Memfault SDK 0.31.2 and SDK 0.31.1 - June 24, 2022
+
+#### :chart_with_upwards_trend: Improvements
+
+- Fixed a :bug: in the
+  [Zephyr port HTTP implementation](ports/zephyr/common/memfault_platform_http.c),
+  where a socket file descriptor was leaked. This caused every HTTP operation
+  after the first to fail on Zephyr platforms. Thanks to @rerickson1 for the
+  fix!
+- Added an update to improve the quality of stack traces when using
+  `MEMFAULT_ASSERT` with the TI ARM Clang Compiler
+
+### Changes between Memfault SDK 0.31.1 and SDK 0.31.0 - June 16, 2022
+
+#### :chart_with_upwards_trend: Improvements
+
+- Enable the Zephyr fault handler (including console fault prints) after
+  Memfault handler runs. Can be disabled by implementing
+  `memfault_platform_reboot()`. See details in
+  [ports/zephyr/include/memfault/ports/zephyr/coredump.h](ports/zephyr/include/memfault/ports/zephyr/coredump.h)
+
+#### :house: Internal
+
+- Fixed compiler error in
+  [nRF91 sample test app](examples/nrf-connect-sdk/nrf9160/memfault_demo_app)
+  when compiling with the nRF Connect SDK v2.0.0 release
+
+### Changes between Memfault SDK 0.31.0 and SDK 0.30.5 - June 6, 2022
+
+#### :chart_with_upwards_trend: Improvements
+
+- Added reference port for
+  [CAT1A (PSoC:tm: 6)](https://github.com/Infineon/mtb-pdl-cat1) based MCUs
+  using the
+  [ModusToolbox:tm: Software](https://www.infineon.com/cms/en/design-support/tools/sdk/modustoolbox-software/)
+  stack. For more details see [ports/cypress/psoc6](ports/cypress/psoc6)
+  directory.
+- Added a convenience utility function for posting chunks using the Memfault
+  http client. See
+  [`memfault_http_client_post_chunk`](components/include/memfault/http/http_client.h#L101)
+  for more details!
+
+#### :house: Internal
+
+- Fixed compiler error in
+  [nRF91 sample test app](examples/nrf-connect-sdk/nrf9160/memfault_demo_app)
+  when compiling with the nRF Connect SDK 1.8 release
+
+### Changes between Memfault SDK 0.30.5 and SDK 0.30.4 - May 24, 2022
+
+#### :rocket: New Features
+
+- ESP-IDF: add Memfault Compact Log example integration to the
+  [`examples/esp32`](examples/esp32) project
+
+#### :chart_with_upwards_trend: Improvements
+
+- ESP-IDF: Fix backtraces when using ESP-IDF v4.4+
+- nRF-Connect SDK: enable the Kconfig flag `MEMFAULT_NRF_CONNECT_SDK` by default
+  when targeting the nrf52 + nrf53 series SOCs (previously only enabled by
+  default for nrf91 series)
+
+#### :house: Internal
+
+Added clarifications around licensing in ports and examples folders. See
+[README](README.md) for more details.
+
+### Changes between Memfault SDK 0.30.4 and SDK 0.30.3 - May 4, 2022
+
+#### :chart_with_upwards_trend: Improvements
+
+- minor updates to [`scripts/eclipse_patch.py`](scripts/eclipse_patch.py) to
+  support NXP's MCUXpresso IDE
+
 ### Changes between Memfault SDK 0.30.3 and SDK 0.30.2 - April 25, 2022
 
 #### :chart_with_upwards_trend: Improvements

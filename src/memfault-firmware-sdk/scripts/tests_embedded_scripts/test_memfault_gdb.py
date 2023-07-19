@@ -8,6 +8,7 @@ import os
 import sys
 from io import BufferedIOBase, BytesIO
 from json import dumps
+from typing import Any, List, Tuple
 from unittest import mock
 from unittest.mock import ANY, MagicMock
 
@@ -21,7 +22,7 @@ scripts_dir = os.path.dirname(tests_dir)
 sys.path.insert(0, scripts_dir)
 
 
-from memfault_gdb import (  # noqa: E402 M900
+from memfault_gdb import (  # noqa: E402
     ArmCortexMCoredumpArch,
     MemfaultConfig,
     MemfaultCoredump,
@@ -48,8 +49,8 @@ def _patch_datetime_now(mocker):
 
 @pytest.fixture()
 def http_expect_request():
-    connections = []
-    expected_requests = []
+    connections: List[MagicMock] = []
+    expected_requests: List[Tuple[Any, ...]] = []
     actual_request_count = 0
 
     def _http_expect_request(url, method, assert_body_fn, req_headers, resp_status, resp_body):
@@ -68,7 +69,7 @@ def http_expect_request():
                     resp_body,
                 ) = expected_requests[len(connections)]
             except IndexError as e:
-                raise Exception("Unexpected mock HTTPConnection created!") from e
+                raise AssertionError("Unexpected mock HTTPConnection created!") from e
 
             def _request(method, path, body=None, headers=None):
                 nonlocal actual_request_count
@@ -92,7 +93,7 @@ def http_expect_request():
                 None if resp_body is None else dumps(resp_body).encode("utf8")
             )
             connection.getresponse.return_value = response
-            connections.append(connections)
+            connections.append(connection)
             return connection
 
         return _connection_constructor
@@ -220,7 +221,6 @@ def _settings_coredump_allowed(test_config):
 
 
 def test_parse_maintenance_info_sections_no_file():
-
     fn, sections = parse_maintenance_info_sections(
         """Remote serial target in gdb-specific protocol:
 Debugging a target over a serial line.
@@ -231,7 +231,6 @@ Debugging a target over a serial line.
 
 
 def test_parse_maintenance_info_sections_with_file(maintenance_info_sections_fixture, fake_elf):
-
     fn, sections = parse_maintenance_info_sections(maintenance_info_sections_fixture)
     assert fn == str(fake_elf)
     assert len(sections) == 35
@@ -244,7 +243,7 @@ def test_read_current_registers(mocker, info_reg_all_fixture):
     frame.read_register.return_value = gdb_fake.Value(1, type=gdb_fake.Type(sizeof=4))
     mocker.patch.object(gdb_fake, "newest_frame", return_value=frame)
 
-    dummy_dict = {}
+    dummy_dict: dict = {}
     arch = ArmCortexMCoredumpArch()
     register_list = lookup_registers_from_list(arch, info_reg_all_fixture, dummy_dict)
     for reg in arch.register_collection_list:
@@ -254,7 +253,6 @@ def test_read_current_registers(mocker, info_reg_all_fixture):
 
 
 def test_should_capture_section():
-
     # Never capture .text, even when NOT marked READONLY:
     assert not should_capture_section(Section(0, 10, ".text", read_only=False))
 
@@ -272,9 +270,14 @@ def test_should_capture_section():
 
 
 def test_armv7_get_used_ram_base_addresses():
-
     sections = (
+        # Sections must meet the guess criteria:
+        # 1. within an allowed region
+        # 2. not read-only OR contain `.data`/`.bss` etc in the name
+        Section(0x21000000, 10, "", read_only=False),
         Section(0x30000000, 10, "", read_only=True),
+        Section(0x3F000000, 10, ".data.etc", read_only=True),
+        Section(0x40000000, 10, "", read_only=True),
         Section(0x70000000, 10, "", read_only=True),
         Section(0x90000000, 10, "", read_only=True),
         Section(0x00000000, 10, "", read_only=True),
@@ -283,14 +286,12 @@ def test_armv7_get_used_ram_base_addresses():
 
     collection_size_arm = 1 * 1024 * 1024  # 1MB
     assert [
-        (0x20000000, collection_size_arm),
-        (0x60000000, collection_size_arm),
-        (0x80000000, collection_size_arm),
+        (0x21000000, collection_size_arm),
+        (0x3F000000, collection_size_arm),
     ] == ArmCortexMCoredumpArch().guess_ram_regions(sections)
 
 
 def test_read_memory_until_error_no_error():
-
     read_size = 1024
     size = 1024 * 1024
     inferior = MagicMock()
@@ -300,7 +301,6 @@ def test_read_memory_until_error_no_error():
 
 
 def test_read_memory_until_error_after_10k():
-
     read_size = 1024
     size = 1024 * 1024
     inferior = MagicMock()
@@ -310,7 +310,7 @@ def test_read_memory_until_error_after_10k():
         nonlocal total_size
         total_size += _size
         if total_size > _size * 10:
-            raise Exception()
+            raise ValueError()
         return b"A" * _size
 
     inferior.read_memory.side_effect = _read_memory_raise_after_10k
@@ -319,12 +319,14 @@ def test_read_memory_until_error_after_10k():
 
 
 def test_coredump_writer(snapshot):
-
     arch = ArmCortexMCoredumpArch()
-    cd_writer = MemfaultCoredumpWriter(arch)
-    cd_writer.device_serial = "device_serial"
-    cd_writer.firmware_version = "1.2.3"
-    cd_writer.hardware_revision = "gdb-proto"
+    device_serial = "device_serial"
+    software_type = "main"
+    software_version = "1.2.3"
+    hardware_revision = "gdb-proto"
+    cd_writer = MemfaultCoredumpWriter(
+        arch, device_serial, software_type, software_version, hardware_revision
+    )
     cd_writer.trace_reason = 5
     cd_writer.regs = [
         {
@@ -338,12 +340,12 @@ def test_coredump_writer(snapshot):
             "r7": 4 * b"\x07",
             "r8": 4 * b"\x08",
             "r9": 4 * b"\x09",
-            "r10": 4 * b"\x0A",
-            "r11": 4 * b"\x0B",
-            "r12": 4 * b"\x0C",
-            "sp": 4 * b"\x0D",
-            "lr": 4 * b"\x0E",
-            "pc": 4 * b"\x0F",
+            "r10": 4 * b"\x0a",
+            "r11": 4 * b"\x0b",
+            "r12": 4 * b"\x0c",
+            "sp": 4 * b"\x0d",
+            "lr": 4 * b"\x0e",
+            "pc": 4 * b"\x0f",
             "xpsr": 4 * b"\x10",
             "msp": 4 * b"\x11",
             "psp": 4 * b"\x12",
@@ -362,7 +364,6 @@ def test_coredump_writer(snapshot):
 
 
 def test_http_basic_auth():
-
     headers = add_basic_auth("martijn@memfault.com", "open_sesame", {"Foo": "Bar"})
     assert headers == {
         "Foo": "Bar",
@@ -378,7 +379,7 @@ def _gdb_for_coredump(mocker, maintenance_info_sections_fixture, _settings_cored
     def _gdb_execute(cmd, to_string):
         if cmd == "maintenance info sections":
             return maintenance_info_sections_fixture
-        if cmd == "info reg all":
+        if cmd == "info all-registers":
             return "r0\t0\n"
         if cmd == "info threads":
             return ""
@@ -464,6 +465,66 @@ def test_coredump_command_not_allowing(
 
     stdout = capsys.readouterr().out
     assert "Aborting" in stdout
+
+
+@pytest.mark.usefixtures("_gdb_for_coredump")
+def test_coredump_all_overrides(http_expect_request, test_config, mocker):
+    """Test coredump command with all overrides set"""
+
+    # Verify coredump is uploaded
+    test_config.ingress_uri = "https://custom-ingress.memfault.com"
+    http_expect_request(
+        "https://custom-ingress.memfault.com/api/v0/upload/coredump",
+        "POST",
+        ANY,
+        {"Content-Type": "application/octet-stream", "Memfault-Project-Key": TEST_PROJECT_KEY},
+        200,
+        {},
+    )
+
+    writer = MagicMock()
+    mocker.patch("memfault_gdb.MemfaultCoredumpWriter", writer)
+
+    hardware_revision = "TESTREVISION"
+    software_version = "TESTVERSION"
+    software_type = "TESTTYPE"
+    device_serial = "TESTSERIAL"
+
+    cmd = MemfaultCoredump()
+    cmd.invoke(
+        "--project-key {} --hardware-revision {} --software-version {} --software-type {}"
+        " --device-serial {}".format(
+            TEST_PROJECT_KEY, hardware_revision, software_version, software_type, device_serial
+        ),
+        True,
+    )
+
+    # Verify that all args were successfully extracted and passed to writer
+    writer.assert_called_once_with(
+        ANY, device_serial, software_type, software_version, hardware_revision
+    )
+
+
+@pytest.mark.parametrize(
+    ("cmd_option", "cmd_type"),
+    [
+        ("--hardware-revision", "hardware revision"),
+        ("--software-version", "software version"),
+        ("--software-type", "software type"),
+        ("--device-serial", "device serial"),
+    ],
+)
+def test_coredump_override_invalid_input(capsys, cmd_option, cmd_type):
+    """Test coredump command with invalid input for each override"""
+
+    invalid_input = 'inv"lid'
+
+    cmd = MemfaultCoredump()
+    cmd.invoke("--project-key {} {} {}".format(TEST_PROJECT_KEY, cmd_option, invalid_input), True)
+
+    # Verify an error is thrown for the invalid input
+    stderr = capsys.readouterr().err
+    assert "Invalid characters in {}: {}".format(cmd_type, invalid_input) in stderr
 
 
 @pytest.mark.parametrize(
@@ -575,7 +636,6 @@ https://app.memfault.com/organizations/acme-inc/projects/smart-sink/issues?live"
 
 
 def test_login_command_simple(http_expect_request, test_config):
-
     http_expect_request(
         "https://api.memfault.com/auth/me", "GET", None, TEST_AUTH_HEADERS, 200, {"id": 123}
     )
@@ -591,12 +651,11 @@ def test_login_command_simple(http_expect_request, test_config):
 
 
 def test_login_command_with_all_options(http_expect_request, test_config):
-
-    test_api_uri = "http://dev-api.memfault.com:5000"
+    test_api_uri = "http://dev-api.memfault.com:8000"
     test_ingress_uri = "http://dev-ingress.memfault.com"
 
     http_expect_request(
-        "http://dev-api.memfault.com:5000/auth/me", "GET", None, TEST_AUTH_HEADERS, 200, {"id": 123}
+        "http://dev-api.memfault.com:8000/auth/me", "GET", None, TEST_AUTH_HEADERS, 200, {"id": 123}
     )
 
     login = MemfaultLogin()
@@ -639,7 +698,6 @@ def test_login_command_with_all_options(http_expect_request, test_config):
 def test_has_uploaded_symbols(
     http_expect_request, expected_result, resp_status, resp_body, test_config_with_login
 ):
-
     test_software_type = "main"
     test_software_version = "1.0.0"
     http_expect_request(
@@ -663,7 +721,6 @@ def test_has_uploaded_symbols(
 
 
 def test_post_chunk_data(http_expect_request):
-
     base_uri = "https://example.chunks.memfault.com"
     chunk_data = bytearray([1, 2, 3, 4])
     device_serial = "GDB_TESTSERIAL"

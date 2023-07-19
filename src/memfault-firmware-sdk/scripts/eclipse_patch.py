@@ -20,18 +20,29 @@ def get_depth_from_parent(project_dir, memfault_dir):
     common_prefix = os.path.commonprefix([memfault_dir, project_dir])
     depth = 1
     dirname = project_dir
+
+    # some projects are in the root of the project dir- if the memfault dir is
+    # in the same directory, return a PROJECT_LOC value of 0 for the link
+    # position
+    if dirname == common_prefix:
+        return dirname, 0
+
+    # for the normal case, walk the directory parents until we find the common
+    # parent for the project and memfault dirs
     while True:
         parent_dir = os.path.dirname(dirname)
         if os.path.samefile(parent_dir, common_prefix):
             return common_prefix, depth
         elif parent_dir == dirname:
-            raise Exception("Couldn't compute depth, aborting at directory {}".format(parent_dir))
+            raise RuntimeError(
+                "Couldn't compute depth, aborting at directory {}".format(parent_dir)
+            )
         depth += 1
         dirname = parent_dir
 
 
 def generate_link_element(name, path, path_type="1"):
-    ele = ET.fromstring(
+    ele = ET.fromstring(  # noqa: S314
         """
 \t<link>
 \t\t<name>{NAME}</name>
@@ -47,7 +58,7 @@ def generate_link_element(name, path, path_type="1"):
 
 
 def generate_linked_resources():
-    ele = ET.fromstring(
+    ele = ET.fromstring(  # noqa: S314
         """
 \t<linkedResources>
 </linkedResources>
@@ -100,8 +111,9 @@ def files_to_link(dir_glob, virtual_dir, common_prefix, parent_dir):
         # Note:
         #  - xtensa targets (i.e ESP) use CMake/Make so no need to add to eclipse based projects
         #  - skip adding "memfault_demo_http" from demo component
-        if "xtensa" in file_name or "http" in file_name:
+        if "xtensa" in file_name or ("http" in os.path.relpath(file_name, start=common_prefix)):
             continue
+        logging.debug("Adding %s", file_name)
 
         yield get_file_element(file_name, virtual_dir, common_prefix, parent_dir)
 
@@ -117,12 +129,12 @@ def patch_project(
     project_file = "{}/.project".format(project_dir)
 
     if not os.path.isfile(project_file):
-        raise Exception("Could not location project file at {}".format(project_file))
+        raise RuntimeError("Could not location project file at {}".format(project_file))
 
     if not os.path.isdir(memfault_sdk_dir) or not os.path.isfile(
         "{}/VERSION".format(memfault_sdk_dir)
     ):
-        raise Exception("Could not locate memfault-firmware-sdk at {}".format(memfault_sdk_dir))
+        raise RuntimeError("Could not locate memfault-firmware-sdk at {}".format(memfault_sdk_dir))
 
     if location_prefix is None:
         # No prefix was given so paths will be generated relative to project root
@@ -141,7 +153,7 @@ def patch_project(
     logging.debug("Memfault Firmware SDK Path: %s", memfault_sdk_dir)
     logging.debug("Eclipse Memfault Root:      %s", parent_dir)
 
-    tree = ET.parse(project_file)
+    tree = ET.parse(project_file)  # noqa: S314
     root = tree.getroot()
 
     linked_resources_roots = root.findall(".//linkedResources")
@@ -151,7 +163,7 @@ def patch_project(
     elif len(linked_resources_roots) == 1:
         linked_resources = linked_resources_roots[0]
     else:
-        raise Exception(
+        raise RuntimeError(
             "Located {} linked resources in Eclipse project file but expected 1".format(
                 len(linked_resources_roots)
             )
@@ -232,9 +244,9 @@ def patch_cproject(
     cproject_file = "{}/.cproject".format(project_dir)
 
     if not os.path.isfile(cproject_file):
-        raise Exception("Could not location project file at {}".format(cproject_file))
+        raise RuntimeError("Could not location project file at {}".format(cproject_file))
 
-    tree = ET.parse(cproject_file)
+    tree = ET.parse(cproject_file)  # noqa: S314
     root = tree.getroot()
 
     with open(cproject_file) as cproject_xml:
@@ -257,7 +269,13 @@ def patch_cproject(
 
     def _find_include_nodes(option):
         return option.get("id", "").startswith(
-            "ilg.gnuarmeclipse.managedbuild.cross.option.c.compiler.include.paths"
+            (
+                # this is the element id used by Dialog's Smart Snippets Studio
+                # IDE (and possibly others)
+                "ilg.gnuarmeclipse.managedbuild.cross.option.c.compiler.include.paths",
+                # this is the element id used by NXP's MCUXpresso IDE
+                "gnu.c.compiler.option.include.paths",
+            )
         )
 
     memfault_sdk_include_paths = [
@@ -313,7 +331,11 @@ def patch_cproject(
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(
+        format="%(asctime)s,%(msecs)d %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s",
+        datefmt="%Y-%m-%d:%H:%M:%S",
+        level=logging.INFO,
+    )
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
         description="""
@@ -344,7 +366,10 @@ $ python eclipse_patch.py --project-dir . --memfault-sdk-dir /path/to/memfault-f
     parser.add_argument(
         "-l",
         "--location-prefix",
-        help="The default behavior will add memfault-firmware-sdk files to the eclipse project using paths relative to the project root. This can be used to control the root used instead",
+        help=(
+            "The default behavior will add memfault-firmware-sdk files to the eclipse project using"
+            " paths relative to the project root. This can be used to control the root used instead"
+        ),
     )
 
     parser.add_argument(
@@ -356,7 +381,10 @@ $ python eclipse_patch.py --project-dir . --memfault-sdk-dir /path/to/memfault-f
 
     parser.add_argument(
         "--output",
-        help="The directory to output result to. By default, the .project/.cproject files for the project will be overwritten",
+        help=(
+            "The directory to output result to. By default, the .project/.cproject files for the"
+            " project will be overwritten"
+        ),
     )
     parser.add_argument(
         "--verbose",
@@ -372,12 +400,12 @@ $ python eclipse_patch.py --project-dir . --memfault-sdk-dir /path/to/memfault-f
     components = args.components.split(",")
 
     if args.output and not os.path.isdir(args.output):
-        raise Exception("Output directory does not exist: {}".format(args.output))
+        raise RuntimeError("Output directory does not exist: {}".format(args.output))
 
     if args.location_prefix:
         location_prefix = args.location_prefix.split("=")
         if len(location_prefix) != 2:
-            raise Exception("Location Prefix must be of form 'VAR=/path/'")
+            raise RuntimeError("Location Prefix must be of form 'VAR=/path/'")
     else:
         location_prefix = None
 
@@ -399,5 +427,6 @@ $ python eclipse_patch.py --project-dir . --memfault-sdk-dir /path/to/memfault-f
     )
 
     logging.info(
-        "Hurray, .project & .cproject have been succesfully patched! Be sure to 'Refresh' project to synchronize changes!"
+        "Hurray, .project & .cproject have been succesfully patched! Be sure to 'Refresh' project"
+        " to synchronize changes!"
     )

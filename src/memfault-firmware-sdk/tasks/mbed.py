@@ -44,11 +44,13 @@ def mbed_update(ctx):
     with ctx.cd(MBED_DEMO_APP_ROOT):
         ctx.run(cmd, pty=True)
 
-        # manually override some of the python packages that 'mbed update' installs.
+        # 'mbed update' above installs some pretty out-of-date python packages
+        # into the current python environment. Update them to more recent
+        # versions that are compatible with python3.10.
         pip_packages = (
-            # force installing a more recent version of intelhex that supports
-            # python >3.2 😠
+            "future==0.18.2",
             "intelhex==2.3.0",
+            "pyelftools==0.29",
             # A hack to work around version pinning issue with mbed-os and
             # incompatibility with markupsafe 2.1.0 release
             "markupsafe==2.0.1",
@@ -61,6 +63,12 @@ def mbed_update(ctx):
         # delicate.
         # https://github.com/memfault/memfault/blob/299e7ee7ceec81449fc12d3658fc1ed8d99ebf81/docker-images/ci/Dockerfile#L98
         ctx.run("{} -m pip install {}".format(sys.executable, " ".join(pip_packages)), pty=True)
+
+    # apply this patch to enable using ccache when building with the mbed cli.
+    # some of these flags to 'patch' are probably not gonna work on mac osx. too
+    # bad.
+    with ctx.cd(MEMFAULT_SDK_ROOT):
+        ctx.run("patch --forward -r- -p0 < tasks/mbed_ccache.patch", warn=True)
 
     print("Update finished.  Ignore warnings about source control above; do not run 'mbed new'.")
 
@@ -99,7 +107,17 @@ def mbed_build(
         cmd += " --flash"
 
     with ctx.cd(MBED_DEMO_APP_ROOT):
-        ctx.run(cmd, pty=True)
+        # to make ccache work, we need to set pretty aggressive sloppiness
+        # (non-reproducible builds otherwise), and set and explicit
+        # MBED_BUILD_TIMESTAMP value
+        ctx.run(
+            cmd,
+            pty=True,
+            env={
+                "MBED_BUILD_TIMESTAMP": "0",
+                "CCACHE_SLOPPINESS": "include_file_ctime,include_file_mtime,time_macros",
+            },
+        )
     print("Build finished.  Output: {}".format(MBED_DEMO_APP_ELF))
 
 

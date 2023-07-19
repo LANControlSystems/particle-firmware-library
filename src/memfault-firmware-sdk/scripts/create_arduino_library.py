@@ -42,7 +42,7 @@ def download_memfault_library(working_dir: str, tag: str):
     release_artifact_filepath = os.path.join(working_dir, release_artifact_filename)
     logging.debug("Downloading %s ...", release_artifact_filename)
     try:
-        urllib.request.urlretrieve(
+        urllib.request.urlretrieve(  # noqa: S310
             f"{MEMFAULT_RELEASE_PATH}/{release_artifact_filename}", release_artifact_filepath
         )
     except HTTPError as err:
@@ -67,7 +67,7 @@ def extract_memfault_library(working_dir: str, release_artifact_filepath: str):
 
 def arduinoify_memfault_sdk(sdk_root_dir: str, result_dir: str, port: str):
     if not os.path.exists(sdk_root_dir):
-        raise Exception(f"Memfault SDK directory does not exist: {sdk_root_dir}")
+        raise FileNotFoundError(f"Memfault SDK directory does not exist: {sdk_root_dir}")
 
     # We will be re-packag'ing the SDK into a library with the following structure:
     #
@@ -190,10 +190,10 @@ $ python create_arduino_library.py --tag 0.28.2 --output build
     args = parser.parse_args()
 
     if args.tag and args.memfault_sdk:
-        raise Exception("--tag and --memfault-sdk can not be used together")
+        raise ValueError("--tag and --memfault-sdk can not be used together")
 
     if not args.tag and not args.memfault_sdk:
-        raise Exception("Either --tag or --memfault-sdk must be specified")
+        raise ValueError("Either --tag or --memfault-sdk must be specified")
 
     # Create output directory if it does not exist
     os.makedirs(BUILD_DIRECTORY, exist_ok=True)

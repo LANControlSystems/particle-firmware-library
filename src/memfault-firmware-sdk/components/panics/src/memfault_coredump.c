@@ -65,19 +65,39 @@ typedef MEMFAULT_PACKED_STRUCT MfltTraceReasonBlock {
 // NB: We use the upper 16 bits of the MachineType TLV pair in the coredump to
 // encode additional metadata about the architecture being targeted
 
+#define MEMFAULT_MACHINE_TYPE_ARM 40
+
 #define MEMFAULT_MACHINE_TYPE_SUBTYPE_OFFSET 16
 
+//! ESP32
 #define MEMFAULT_MACHINE_TYPE_XTENSA 94
 
+//! ESP8266
 #define MEMFAULT_MACHINE_TYPE_XTENSA_LX106 \
   ((1 << MEMFAULT_MACHINE_TYPE_SUBTYPE_OFFSET) | MEMFAULT_MACHINE_TYPE_XTENSA)
 
-typedef enum MfltCoredumpMachineType  {
+//! ESP32-S2
+#define MEMFAULT_MACHINE_TYPE_XTENSA_LX7 \
+  ((2 << MEMFAULT_MACHINE_TYPE_SUBTYPE_OFFSET) | MEMFAULT_MACHINE_TYPE_XTENSA)
+
+//! ESP32-S3
+#define MEMFAULT_MACHINE_TYPE_XTENSA_LX7_DUAL \
+  ((3 << MEMFAULT_MACHINE_TYPE_SUBTYPE_OFFSET) | MEMFAULT_MACHINE_TYPE_XTENSA)
+
+//! Cortex-R
+#define MEMFAULT_MACHINE_TYPE_CORTEX_R \
+  ((1 << MEMFAULT_MACHINE_TYPE_SUBTYPE_OFFSET) | MEMFAULT_MACHINE_TYPE_ARM)
+
+typedef enum MfltCoredumpMachineType {
   kMfltCoredumpMachineType_None = 0,
-  kMfltCoredumpMachineType_ARM = 40,
+  kMfltCoredumpMachineType_ARM = MEMFAULT_MACHINE_TYPE_ARM,
   kMfltCoredumpMachineType_Aarch64 = 183,
   kMfltCoredumpMachineType_Xtensa = MEMFAULT_MACHINE_TYPE_XTENSA,
-  kMfltCoredumpMachineType_XtensaLx106 = MEMFAULT_MACHINE_TYPE_XTENSA_LX106
+  kMfltCoredumpMachineType_XtensaLx106 = MEMFAULT_MACHINE_TYPE_XTENSA_LX106,
+  kMfltCoredumpMachineType_XtensaLx7 = MEMFAULT_MACHINE_TYPE_XTENSA_LX7,
+  kMfltCoredumpMachineType_XtensaLx7Dual = MEMFAULT_MACHINE_TYPE_XTENSA_LX7_DUAL,
+  kMfltCoredumpMachineType_RiscV = 243,
+  kMfltCoredumpMachineType_ARM_Cortex_R = MEMFAULT_MACHINE_TYPE_CORTEX_R,
 } eMfltCoredumpMachineType;
 
 typedef MEMFAULT_PACKED_STRUCT MfltMachineTypeBlock {
@@ -220,23 +240,34 @@ static eMfltCoredumpBlockType prv_region_type_to_storage_type(eMfltCoredumpRegio
 }
 
 static eMfltCoredumpMachineType prv_get_machine_type(void) {
+  return
 #if defined(MEMFAULT_UNITTEST)
-  return kMfltCoredumpMachineType_None;
+    kMfltCoredumpMachineType_None
+#elif MEMFAULT_COMPILER_ARM_CORTEX_M
+    kMfltCoredumpMachineType_ARM
+#elif MEMFAULT_COMPILER_ARM_V7_A_R
+    kMfltCoredumpMachineType_ARM_Cortex_R
+#elif defined(__aarch64__)
+    kMfltCoredumpMachineType_Aarch64
+#elif defined(__XTENSA__) && defined(__XTENSA_WINDOWED_ABI__) && defined(__XTENSA_SOFT_FLOAT__)
+    // ESP32-S2 has this unique compiler-defined symbol
+    kMfltCoredumpMachineType_XtensaLx7
+#elif defined(__XTENSA__) && defined(__XTENSA_WINDOWED_ABI__) && defined(CONFIG_IDF_TARGET_ESP32S3)
+    // rely on Kconfig provided flag for ESP32-S3; compiler defined symbols are identical to ESP32.
+    // ❯ diff -duw <(xtensa-esp32-elf-gcc -dM -E - < /dev/null)  <(xtensa-esp32s3-elf-gcc -dM -E - < /dev/null)
+    kMfltCoredumpMachineType_XtensaLx7Dual
+#elif defined(__XTENSA__) && defined(__XTENSA_WINDOWED_ABI__)
+    // default xtensa windowed target is vanilla ESP32
+    kMfltCoredumpMachineType_Xtensa
+#elif defined(__XTENSA__)
+    // finally, ESP8266
+    kMfltCoredumpMachineType_XtensaLx106
+#elif defined(__riscv)
+    kMfltCoredumpMachineType_RiscV
 #else
-#  if MEMFAULT_COMPILER_ARM
-  return kMfltCoredumpMachineType_ARM;
-#  elif defined(__aarch64__)
-  return kMfltCoredumpMachineType_Aarch64;
-#  elif defined(__XTENSA__)
-  # if defined(__XTENSA_WINDOWED_ABI__)
-    return kMfltCoredumpMachineType_Xtensa;
-  # else
-    return kMfltCoredumpMachineType_XtensaLx106;
-  # endif
-# else
-#    error "Coredumps are not supported for target architecture"
-#  endif
+  #error "Coredumps are not supported for target architecture"
 #endif
+    ;
 }
 
 static bool prv_write_device_info_blocks(sMfltCoredumpWriteCtx *ctx) {

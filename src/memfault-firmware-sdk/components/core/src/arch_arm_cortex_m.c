@@ -9,7 +9,7 @@
 #include "memfault-firmware-sdk/components/include/memfault/core/compiler.h"
 #include "memfault-firmware-sdk/components/include/memfault/core/platform/core.h"
 
-#if MEMFAULT_COMPILER_ARM
+#if MEMFAULT_COMPILER_ARM_CORTEX_M
 
 bool memfault_arch_is_inside_isr(void) {
   // We query the "Interrupt Control State Register" to determine
@@ -17,6 +17,14 @@ bool memfault_arch_is_inside_isr(void) {
   volatile uint32_t *ICSR = (uint32_t *)0xE000ED04;
   // Bottom byte makes up "VECTACTIVE"
   return ((*ICSR & 0xff) != 0x0);
+}
+
+void memfault_arch_disable_configurable_faults(void) {
+  // Clear MEMFAULTENA, BUSFAULTENA, USGFAULTENA, SECUREFAULTENA
+  //
+  // This will force all faults to be routed through the HardFault Handler
+  volatile uint32_t *SHCSR = (uint32_t*)0xE000ED24;
+  *SHCSR &= ~((uint32_t)0x000F0000);
 }
 
 MEMFAULT_WEAK
@@ -35,4 +43,4 @@ void memfault_platform_halt_if_debugging(void) {
   MEMFAULT_BREAKPOINT(77);
 }
 
-#endif /* MEMFAULT_COMPILER_ARM */
+#endif /* MEMFAULT_COMPILER_ARM_CORTEX_M */

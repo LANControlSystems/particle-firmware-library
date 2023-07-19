@@ -103,6 +103,13 @@ extern "C" {
 #define MEMFAULT_LOG_DATA_SOURCE_ENABLED 1
 #endif
 
+//! Maximum length of a compact log export chunk.
+//!
+//! Controls the maximum chunk length when exporting compact logs with memfault_log_export.
+#ifndef MEMFAULT_LOG_EXPORT_CHUNK_MAX_LEN
+  #define MEMFAULT_LOG_EXPORT_CHUNK_MAX_LEN 80
+#endif
+
 //! Maximum length a log record can occupy
 //!
 //! Structs holding this log may be allocated on the stack so care should be taken
@@ -439,6 +446,28 @@ extern "C" {
 #endif
 
 //
+// Custom Data Recording configuration options [EXPERIMENTAL]
+//
+
+//! Controls whether or not publishing Custom Data Recordings is enabled.
+//! For severely constrained environments, this option can be disabled to save
+//! a little flash/data space.
+#ifndef MEMFAULT_CDR_ENABLE
+#define MEMFAULT_CDR_ENABLE 0
+#endif
+
+//! Controls the maximum number of Custom Data Recording sources a project can register.
+//! The overhead per allocation is 4 bytes (size of a pointer)
+#ifndef MEMFAULT_CDR_MAX_DATA_SOURCES
+#define MEMFAULT_CDR_MAX_DATA_SOURCES 4
+#endif
+
+//! Controls the maximum space budgeted for a Custom Data Recording header.
+#ifndef MEMFAULT_CDR_MAX_ENCODED_METADATA_LEN
+#define MEMFAULT_CDR_MAX_ENCODED_METADATA_LEN 128
+#endif
+
+//
 // Port Configuration Options
 //
 
@@ -521,6 +550,25 @@ extern "C" {
 //! version of memfault_platform_coredump_get_regions()
 #ifndef MEMFAULT_PLATFORM_COREDUMP_STORAGE_REGIONS_CUSTOM
 #define MEMFAULT_PLATFORM_COREDUMP_STORAGE_REGIONS_CUSTOM 0
+#endif
+
+//! Set the capture size for FreeRTOS TCB structures in the coredump, when
+//! memfault_freertos_ram_regions.c is used.
+//!
+//! Set this to 0 to collect the entire TCB structure.
+//!
+//! The default value captures the required structure fields in each TCB used
+//! for RTOS Awareness by the Memfault backend, but truncates unused fields- for
+//! example, if FreeRTOS is configured with configUSE_NEWLIB_REENTRANT, the TCBs
+//! contain extra fields that are not needed for thread decode and take up space
+//! in the coredump.
+//!
+//! See more details here: https://docs.memfault.com/docs/mcu/rtos-analysis
+//!
+//! And see ports/freertos/src/memfault_freertos_ram_regions.c for information
+//! on the implementation
+#ifndef MEMFAULT_PLATFORM_FREERTOS_TCB_SIZE
+  #define MEMFAULT_PLATFORM_FREERTOS_TCB_SIZE 100
 #endif
 
 #ifdef __cplusplus

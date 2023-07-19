@@ -16,6 +16,7 @@
 #include "memfault-firmware-sdk/components/include/memfault/core/math.h"
 #include "memfault-firmware-sdk/components/include/memfault/core/platform/core.h"
 #include "memfault-firmware-sdk/components/include/memfault/core/platform/overrides.h"
+#include "memfault-firmware-sdk/components/include/memfault/core/reboot_tracking.h"
 #include "memfault-firmware-sdk/components/include/memfault/core/serializer_helper.h"
 #include "memfault-firmware-sdk/components/include/memfault/metrics/metrics.h"
 #include "memfault-firmware-sdk/components/include/memfault/metrics/platform/overrides.h"
@@ -37,6 +38,7 @@ MEMFAULT_DISABLE_WARNING("-Wunused-macros")
 #define MEMFAULT_METRICS_TYPE_NO_CHANGE (-4)
 #define MEMFAULT_METRICS_STORAGE_TOO_SMALL (-5)
 #define MEMFAULT_METRICS_TIMER_BOOT_FAILED (-6)
+#define MEMFAULT_METRICS_VALUE_NOT_SET (-7)
 
 typedef struct MemfaultMetricKVPair {
   MemfaultMetricId key;
@@ -89,7 +91,7 @@ MEMFAULT_STATIC_ASSERT(MEMFAULT_ARRAY_SIZE(s_memfault_heartbeat_keys) != 0,
 
 #define MEMFAULT_METRICS_TIMER_VAL_MAX 0x80000000
 typedef struct MemfaultMetricValueMetadata {
-  bool is_running:1;
+  bool is_running : 1;
   // We'll use 32 bits since the rollover time is ~25 days which is much much greater than a
   // reasonable heartbeat interval. This let's us track whether or not the timer is running in the
   // top bit
@@ -99,6 +101,7 @@ typedef struct MemfaultMetricValueMetadata {
 typedef struct MemfaultMetricValueInfo {
   union MemfaultMetricValue *valuep;
   sMemfaultMetricValueMetadata *meta_datap;
+  bool is_set;
 } sMemfaultMetricValueInfo;
 
 
@@ -130,7 +133,7 @@ static const eMfltMetricKeyToValueIndex s_memfault_heartbeat_key_to_valueindex[]
   #define MEMFAULT_METRICS_KEY_DEFINE(key_name, value_type) \
     kMfltMetricKeyToValueIndex_##key_name,
   #define MEMFAULT_METRICS_STRING_KEY_DEFINE(key_name, max_length) \
-    0,  // 0 for the placeholder so it's safe to index with
+    (eMfltMetricKeyToValueIndex) 0,  // 0 for the placeholder so it's safe to index with
 
   #include "memfault-firmware-sdk/components/include/memfault/metrics/heartbeat_config.def"
   #include MEMFAULT_METRICS_USER_HEARTBEAT_DEFS_FILE
@@ -156,7 +159,7 @@ typedef enum MfltMetricStringKeyToIndex {
 // Now generate a table mapping the canonical key ID to the index in s_memfault_heartbeat_values
 static const eMfltMetricStringKeyToIndex s_memfault_heartbeat_string_key_to_index[] = {
   #define MEMFAULT_METRICS_KEY_DEFINE(key_name, value_type) \
-    0,  // 0 for the placeholder so it's safe to index with
+    (eMfltMetricStringKeyToIndex)0,  // 0 for the placeholder so it's safe to index with
   #define MEMFAULT_METRICS_STRING_KEY_DEFINE(key_name, max_length) \
     kMfltMetricStringKeyToIndex_##key_name,
 
@@ -178,6 +181,21 @@ static union MemfaultMetricValue s_memfault_heartbeat_values[] = {
   #undef MEMFAULT_METRICS_KEY_DEFINE
   #undef MEMFAULT_METRICS_STRING_KEY_DEFINE
 };
+
+// Value Set flag data structures and definitions
+// MEMFAULT_IS_SET_FLAGS_PER_BYTE must be a power of 2
+// MEMFAULT_IS_SET_FLAGS_DIVIDER must be equal to log2(MEMFAULT_IS_SET_FLAGS_PER_BYTE)
+#define MEMFAULT_IS_SET_FLAGS_PER_BYTE 8
+#define MEMFAULT_IS_SET_FLAGS_DIVIDER 3
+
+// Create a byte array to contain an is-set flag for each entry in s_memfault_heartbeat_values
+static uint8_t s_memfault_heatbeat_value_is_set_flags[MEMFAULT_CEIL_DIV(
+  MEMFAULT_ARRAY_SIZE(s_memfault_heartbeat_values), MEMFAULT_IS_SET_FLAGS_PER_BYTE)];
+
+MEMFAULT_STATIC_ASSERT(
+  MEMFAULT_ARRAY_SIZE(s_memfault_heatbeat_value_is_set_flags) >=
+    (MEMFAULT_ARRAY_SIZE(s_memfault_heartbeat_values) / MEMFAULT_IS_SET_FLAGS_PER_BYTE),
+  "Mismatch between s_memfault_heatbeat_value_is_set_flags and s_memfault_heartbeat_values");
 
 // String value lookup table. Const- the pointers do not change at runtime, so
 // this table can be stored in ROM and save a little RAM.
@@ -249,6 +267,12 @@ static const int s_metric_timer_metadata_mapping[] = {
   #undef MEMFAULT_METRICS_STRING_KEY_DEFINE
 };
 
+// Helper macros to convert between the various metrics indices
+#define MEMFAULT_METRICS_ID_TO_KEY(id) ((size_t)(id)._impl)
+#define MEMFAULT_METRICS_KEY_TO_KV_INDEX(key) (s_memfault_heartbeat_key_to_valueindex[(key)])
+#define MEMFAULT_METRICS_ID_TO_KV_INDEX(id) \
+  (MEMFAULT_METRICS_KEY_TO_KV_INDEX(MEMFAULT_METRICS_ID_TO_KEY(id)))
+
 static struct {
   const sMemfaultEventStorageImpl *storage_impl;
 } s_memfault_metrics_ctx;
@@ -260,6 +284,8 @@ static struct {
 MEMFAULT_WEAK
 void memfault_metrics_heartbeat_collect_data(void) { }
 
+MEMFAULT_WEAK
+void memfault_metrics_heartbeat_collect_sdk_data(void) { }
 
 // Returns NULL if not a timer type or out of bounds index.
 static sMemfaultMetricValueMetadata *prv_find_timer_metadatap(eMfltMetricsIndex metric_index) {
@@ -277,16 +303,36 @@ static sMemfaultMetricValueMetadata *prv_find_timer_metadatap(eMfltMetricsIndex 
   return &s_memfault_heartbeat_timer_values_metadata[timer_index];
 }
 
-static eMemfaultMetricType prv_find_value_for_key(MemfaultMetricId key,
+//! Helper function to read/write is_set bits for the provided metric
+//!
+//! @param id Metric ID to select corresponding is_set field
+//! @param write Boolean to control whether to write 1 to is_set
+//! @return Returns the value of metric's is_set field. The updated value is returned if write =
+//! true
+static bool prv_read_write_is_value_set(MemfaultMetricId id, bool write) {
+  // Shift the kv index by MEMFAULT_IS_SET_FLAGS_DIVIDER to select byte within
+  // s_memfault_heartbeat_value_is_set_flags
+  size_t byte_index = MEMFAULT_METRICS_ID_TO_KV_INDEX(id) >> MEMFAULT_IS_SET_FLAGS_DIVIDER;
+  // Modulo the kv index by MEMFAULT_IS_SET_FLAGS_PER_BYTE to get bit of the selected byte
+  size_t bit_index = MEMFAULT_METRICS_ID_TO_KV_INDEX(id) % MEMFAULT_IS_SET_FLAGS_PER_BYTE;
+
+  if (write) {
+    s_memfault_heatbeat_value_is_set_flags[byte_index] |= (1 << bit_index);
+  }
+
+  return (s_memfault_heatbeat_value_is_set_flags[byte_index] >> bit_index) & 0x01;
+}
+
+static eMemfaultMetricType prv_find_value_for_key(MemfaultMetricId id,
                                                   sMemfaultMetricValueInfo *value_info_out) {
-  const size_t idx = (size_t)key._impl;
+  const size_t idx = MEMFAULT_METRICS_ID_TO_KEY(id);
   if (idx >= MEMFAULT_ARRAY_SIZE(s_memfault_heartbeat_keys)) {
     *value_info_out = (sMemfaultMetricValueInfo){0};
     return kMemfaultMetricType_NumTypes;
   }
 
   // get the index for the value matching this key.
-  eMfltMetricKeyToValueIndex key_index = s_memfault_heartbeat_key_to_valueindex[idx];
+  eMfltMetricKeyToValueIndex key_index = MEMFAULT_METRICS_KEY_TO_KV_INDEX(idx);
   // for scalar types, this will be the returned value pointer. non-scalars
   // will be handled in the switch below
   union MemfaultMetricValue *value_ptr = &s_memfault_heartbeat_values[key_index];
@@ -317,6 +363,10 @@ static eMemfaultMetricType prv_find_value_for_key(MemfaultMetricId key,
     .valuep = value_ptr,
     .meta_datap = prv_find_timer_metadatap((eMfltMetricsIndex)idx),
   };
+
+  if (key_type == kMemfaultMetricType_Unsigned || key_type == kMemfaultMetricType_Signed) {
+    value_info_out->is_set = prv_read_write_is_value_set(id, false);
+  }
 
   return key_type;
 }
@@ -371,6 +421,7 @@ static int prv_find_and_set_value_for_key(
   }
 
   *value_info.valuep = *new_value;
+  prv_read_write_is_value_set(key, true);
   return 0;
 }
 
@@ -513,6 +564,7 @@ static bool prv_tally_and_update_timer_cb(MEMFAULT_UNUSED void *ctx,
 static void prv_reset_metrics(void) {
   // reset all scalar metric values
   memset(s_memfault_heartbeat_values, 0, sizeof(s_memfault_heartbeat_values));
+  memset(s_memfault_heatbeat_value_is_set_flags, 0, sizeof(s_memfault_heatbeat_value_is_set_flags));
 
   // reset all string metric values. -1 to skip the last, stub entry in the
   // table
@@ -522,6 +574,13 @@ static void prv_reset_metrics(void) {
       ((char *)s_memfault_heartbeat_string_values[i].ptr)[0] = 0;
     }
   }
+
+  // Set MemfaultSdkMetric_UnexpectedRebootDidOccur to 0 at the end of each reset.
+  // This must be explicitly set because we use 0 to track number of operational hours
+  // Without setting to 0, this defaults to null and will not be counted in the sum
+  // of total operational hours
+  memfault_metrics_heartbeat_set_unsigned(
+    MEMFAULT_METRICS_KEY(MemfaultSdkMetric_UnexpectedRebootDidOccur), 0);
 }
 
 static void prv_heartbeat_timer_update(void) {
@@ -532,6 +591,7 @@ static void prv_heartbeat_timer_update(void) {
 //! Trigger an update of heartbeat metrics, serialize out to storage, and reset.
 static void prv_heartbeat_timer(void) {
   prv_heartbeat_timer_update();
+  memfault_metrics_heartbeat_collect_sdk_data();
   memfault_metrics_heartbeat_collect_data();
 
   memfault_metrics_heartbeat_serialize(s_memfault_metrics_ctx.storage_impl);
@@ -589,6 +649,9 @@ int memfault_metrics_heartbeat_add(MemfaultMetricId key, int32_t amount) {
   memfault_lock();
   {
     rv = prv_find_key_and_add(key, amount);
+    if(rv == 0) {
+        prv_read_write_is_value_set(key, true);
+    }
   }
   memfault_unlock();
   return rv;
@@ -604,6 +667,11 @@ static int prv_find_key_of_type(MemfaultMetricId key, eMemfaultMetricType expect
   if (type != expected_type) {
     return MEMFAULT_METRICS_TYPE_INCOMPATIBLE;
   }
+  if ((type == kMemfaultMetricType_Signed || type == kMemfaultMetricType_Unsigned) &&
+      !(value_info.is_set)) {
+    return MEMFAULT_METRICS_VALUE_NOT_SET;
+  }
+
   *value_out = value_info.valuep;
   return 0;
 }
@@ -703,7 +771,8 @@ static bool prv_metrics_heartbeat_iterate_cb(void *ctx,
   sMemfaultMetricInfo info = {
     .key = key_info->key,
     .type = key_info->type,
-    .val = *value_info->valuep
+    .val = *value_info->valuep,
+    .is_set = value_info->is_set,
   };
   return ctx_info->user_cb(ctx_info->user_ctx, &info);
 }
@@ -744,12 +813,22 @@ static bool prv_heartbeat_debug_print(MEMFAULT_UNUSED void *ctx,
   const char *key_name = s_idx_to_metric_name[key->_impl];
 
   switch (metric_info->type) {
-    case kMemfaultMetricType_Unsigned:
     case kMemfaultMetricType_Timer:
       MEMFAULT_LOG_DEBUG("  %s: %" PRIu32, key_name, value->u32);
       break;
+    case kMemfaultMetricType_Unsigned:
+      if (metric_info->is_set) {
+        MEMFAULT_LOG_DEBUG("  %s: %" PRIu32, key_name, value->u32);
+      } else {
+        MEMFAULT_LOG_DEBUG("  %s: null", key_name);
+      }
+      break;
     case kMemfaultMetricType_Signed:
-      MEMFAULT_LOG_DEBUG("  %s: %" PRIi32, key_name, value->i32);
+      if (metric_info->is_set) {
+        MEMFAULT_LOG_DEBUG("  %s: %" PRIi32, key_name, value->i32);
+      } else {
+        MEMFAULT_LOG_DEBUG("  %s: null", key_name);
+      }
       break;
     case kMemfaultMetricType_String:
       MEMFAULT_LOG_DEBUG("  %s: \"%s\"", key_name, (const char *)value->ptr);
@@ -772,6 +851,18 @@ void memfault_metrics_heartbeat_debug_print(void) {
 
 void memfault_metrics_heartbeat_debug_trigger(void) {
   prv_heartbeat_timer();
+}
+
+static int prv_init_unexpected_reboot_metric(void) {
+  bool unexpected_reboot = false;
+  int rv = memfault_reboot_tracking_get_unexpected_reboot_occurred(&unexpected_reboot);
+  if (rv != 0) {
+    MEMFAULT_LOG_ERROR("Invalid reset reason read");
+    return -1;
+  }
+
+  return memfault_metrics_heartbeat_set_unsigned(
+    MEMFAULT_METRICS_KEY(MemfaultSdkMetric_UnexpectedRebootDidOccur), unexpected_reboot ? 1 : 0);
 }
 
 int memfault_metrics_boot(const sMemfaultEventStorageImpl *storage_impl,
@@ -802,6 +893,11 @@ int memfault_metrics_boot(const sMemfaultEventStorageImpl *storage_impl,
 
   rv = memfault_metrics_heartbeat_set_unsigned(
       MEMFAULT_METRICS_KEY(MemfaultSdkMetric_UnexpectedRebootCount), info->unexpected_reboot_count);
+  if (rv != 0) {
+    return rv;
+  }
+
+  rv = prv_init_unexpected_reboot_metric();
   if (rv != 0) {
     return rv;
   }

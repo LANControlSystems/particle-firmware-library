@@ -3,12 +3,10 @@
 # See License.txt for details
 #
 
-import contextlib
 import filecmp
 import os
 import shutil
 import sys
-import tempfile
 
 import pytest
 
@@ -19,29 +17,31 @@ script_dir = os.path.dirname(test_dir)
 sys.path.append(script_dir)
 
 
-from mflt_build_id import BuildIdInspectorAndPatcher, MemfaultBuildIdTypes  # noqa isort:skip
+from mflt_build_id import (  # noqa: E402 # isort:skip
+    BuildIdInspectorAndPatcher,
+    MemfaultBuildIdTypes,
+)
 
 
-@contextlib.contextmanager
-def open_copy(file_to_copy, *args, **kwargs):
-    f = tempfile.NamedTemporaryFile(delete=False)
-    try:
-        tmp_name = f.name
-        f.close()
+@pytest.fixture()
+def copy_file(tmp_path):
+    """Copies a file into the tests tmp path"""
+    idx = [0]
 
-        if file_to_copy is not None:
-            shutil.copy2(file_to_copy, tmp_name)
+    def _copy_file(src):
+        # NB: Python 2.7 does not support `nonlocal`
+        tmp_name = str(tmp_path / "file_{}.bin".format(idx[0]))
+        idx[0] += 1
+        shutil.copy2(src, tmp_name)
+        return tmp_name
 
-        with open(tmp_name, *args, **kwargs) as file:
-            yield file
-    finally:
-        os.unlink(tmp_name)
+    return _copy_file
 
 
-def test_gnu_build_id_in_use(capsys, snapshot):
+def test_gnu_build_id_in_use(capsys, copy_file):
     elf_fixture_filename = os.path.join(ELF_FIXTURES_DIR, "gnu_id_present_and_used.elf")
 
-    with open_copy(elf_fixture_filename, mode="rb") as elf_copy_file:
+    with open(copy_file(elf_fixture_filename), mode="rb") as elf_copy_file:
         b = BuildIdInspectorAndPatcher(elf_copy_file)
         b.check_or_update_build_id()
 
@@ -49,14 +49,14 @@ def test_gnu_build_id_in_use(capsys, snapshot):
 
     out, _ = capsys.readouterr()
     lines = out.splitlines()
-    snapshot.assert_match(lines)
+    assert lines == ["Found GNU Build ID: 3d6f95306bbc5fda4183728b3829f88b30f7aa1c"]
 
 
-def test_gnu_build_id_present_but_not_used(capsys, snapshot):
+def test_gnu_build_id_present_but_not_used(capsys, copy_file):
     elf_fixture_filename = os.path.join(ELF_FIXTURES_DIR, "gnu_id_present_and_not_used.elf")
     result_fixture_filename = os.path.join(ELF_FIXTURES_DIR, "memfault_id_used_gnu_id_present.elf")
 
-    with open_copy(elf_fixture_filename, mode="rb") as elf_copy_file:
+    with open(copy_file(elf_fixture_filename), mode="rb") as elf_copy_file:
         b = BuildIdInspectorAndPatcher(elf_copy_file)
         b.check_or_update_build_id()
 
@@ -64,10 +64,14 @@ def test_gnu_build_id_present_but_not_used(capsys, snapshot):
 
     out, _ = capsys.readouterr()
     lines = out.splitlines()
-    snapshot.assert_match(lines)
+    assert lines == [
+        "WARNING: Located a GNU build id but it's not being used by the Memfault SDK",
+        "Added Memfault Generated Build ID to ELF: 028aa9800f0524c9b064711925df5ec403df6b16",
+        "Found Memfault Build Id: 028aa9800f0524c9b064711925df5ec403df6b16",
+    ]
 
 
-def test_memfault_id_unpopulated(capsys, snapshot):
+def test_memfault_id_unpopulated(capsys, copy_file):
     elf_fixture_filename = os.path.join(
         ELF_FIXTURES_DIR, "memfault_build_id_present_and_unpopulated.elf"
     )
@@ -75,7 +79,7 @@ def test_memfault_id_unpopulated(capsys, snapshot):
         ELF_FIXTURES_DIR, "memfault_build_id_present_and_populated.elf"
     )
 
-    with open_copy(elf_fixture_filename, mode="rb") as elf_copy_file:
+    with open(copy_file(elf_fixture_filename), mode="rb") as elf_copy_file:
         b = BuildIdInspectorAndPatcher(elf_copy_file)
         b.check_or_update_build_id()
 
@@ -83,15 +87,77 @@ def test_memfault_id_unpopulated(capsys, snapshot):
 
     out, _ = capsys.readouterr()
     lines = out.splitlines()
-    snapshot.assert_match(lines)
+    assert lines == [
+        "Added Memfault Generated Build ID to ELF: 16e0fe39af176cfa4cf961321ccf5193c2590451",
+        "Found Memfault Build Id: 16e0fe39af176cfa4cf961321ccf5193c2590451",
+    ]
 
 
-def test_memfault_id_populated(capsys, snapshot):
+def test_memfault_sha1_unpopulated(capsys, copy_file):
+    elf_fixture_filename = os.path.join(
+        ELF_FIXTURES_DIR, "memfault_build_id_present_and_unpopulated.elf"
+    )
+
+    with open(copy_file(elf_fixture_filename), mode="rb") as elf_copy_file:
+        # attempt to dump build id before it has been written
+        b = BuildIdInspectorAndPatcher(elf_copy_file)
+        sha1 = b.check_or_update_sha1_build_id("g_memfault_sdk_derived_build_id", dump_only=True)
+        assert sha1.hexdigest() == "16e0fe39af176cfa4cf961321ccf5193c2590451"
+
+        # actually write the build id
+        b = BuildIdInspectorAndPatcher(elf_copy_file)
+        sha1 = b.check_or_update_sha1_build_id("g_memfault_sdk_derived_build_id", dump_only=False)
+        assert sha1.hexdigest() == "16e0fe39af176cfa4cf961321ccf5193c2590451"
+
+        # We've updated the file -- force a reload of anything that is cached
+        elf_copy_file.flush()
+
+        # confirm that patching the SHA1 build id is idempotent
+        b = BuildIdInspectorAndPatcher(elf_copy_file)
+        sha1 = b.check_or_update_sha1_build_id("g_memfault_sdk_derived_build_id", dump_only=False)
+        assert sha1.hexdigest() == "16e0fe39af176cfa4cf961321ccf5193c2590451"
+
+        # confirm once build id is written we dump the info correctly
+        b = BuildIdInspectorAndPatcher(elf_copy_file)
+        sha1 = b.check_or_update_sha1_build_id("g_memfault_sdk_derived_build_id", dump_only=True)
+        assert sha1.hexdigest() == "16e0fe39af176cfa4cf961321ccf5193c2590451"
+
+    out, _ = capsys.readouterr()
+    lines = out.splitlines()
+
+    assert lines == [
+        "Memfault Build ID at 'g_memfault_sdk_derived_build_id' is not written",
+        "Added Memfault Generated SHA1 Build ID to ELF: 16e0fe39af176cfa4cf961321ccf5193c2590451",
+        "Memfault Generated SHA1 Build ID at 'g_memfault_sdk_derived_build_id': 16e0fe39af176cfa4cf961321ccf5193c2590451",
+        "Memfault Generated SHA1 Build ID at 'g_memfault_sdk_derived_build_id': 16e0fe39af176cfa4cf961321ccf5193c2590451",
+    ]
+
+
+def test_memfault_sha1_wrong_symbol(capsys, copy_file):
+    elf_fixture_filename = os.path.join(
+        ELF_FIXTURES_DIR, "memfault_build_id_present_and_unpopulated.elf"
+    )
+
+    with open(copy_file(elf_fixture_filename), mode="rb") as elf_copy_file:
+        b = BuildIdInspectorAndPatcher(elf_copy_file)
+
+        # test symbol does not exist case
+        with pytest.raises(
+            Exception, match="Could not locate 'g_wrong_symbol_name' symbol in provided ELF"
+        ):
+            b.check_or_update_sha1_build_id("g_wrong_symbol_name", dump_only=False)
+
+        # test symbol exists but it's the wrong size
+        with pytest.raises(Exception, match="A build ID should be 20 bytes in size"):
+            b.check_or_update_sha1_build_id("g_memfault_build_id", dump_only=False)
+
+
+def test_memfault_id_populated(capsys, copy_file):
     elf_fixture_filename = os.path.join(
         ELF_FIXTURES_DIR, "memfault_build_id_present_and_populated.elf"
     )
 
-    with open_copy(elf_fixture_filename, mode="rb") as elf_copy_file:
+    with open(copy_file(elf_fixture_filename), mode="rb") as elf_copy_file:
         b = BuildIdInspectorAndPatcher(elf_copy_file)
         b.check_or_update_build_id()
 
@@ -99,7 +165,7 @@ def test_memfault_id_populated(capsys, snapshot):
 
     out, _ = capsys.readouterr()
     lines = out.splitlines()
-    snapshot.assert_match(lines)
+    assert lines == ["Found Memfault Build Id: 16e0fe39af176cfa4cf961321ccf5193c2590451"]
 
 
 def test_no_memfault_sdk_present():
@@ -122,11 +188,11 @@ def test_no_build_id_on_dump():
             b.dump_build_info(num_chars=1)
 
 
-def test_build_id_dump(capsys, snapshot):
+def test_build_id_dump(capsys, copy_file):
     elf_fixture_filename = os.path.join(
         ELF_FIXTURES_DIR, "memfault_build_id_present_and_populated.elf"
     )
-    with open_copy(elf_fixture_filename, mode="rb") as elf_copy_file:
+    with open(copy_file(elf_fixture_filename), mode="rb") as elf_copy_file:
         b = BuildIdInspectorAndPatcher(elf_copy_file)
         b.dump_build_info(num_chars=1)
         b.dump_build_info(num_chars=2)
@@ -136,7 +202,7 @@ def test_build_id_dump(capsys, snapshot):
 
     out, _ = capsys.readouterr()
     lines = out.splitlines()
-    snapshot.assert_match(lines)
+    assert lines == ["1", "16", "16e0fe39af176cfa4cf961321ccf51"]
 
 
 @pytest.mark.parametrize(
@@ -189,20 +255,20 @@ def test_build_id_dump(capsys, snapshot):
         ),
     ],
 )
-def test_get_build_info(fixture, expected_result):
+def test_get_build_info(fixture, expected_result, copy_file):
     elf_fixture_filename = os.path.join(ELF_FIXTURES_DIR, fixture)
-    with open_copy(elf_fixture_filename, mode="rb") as elf_copy_file:
+    with open(copy_file(elf_fixture_filename), mode="rb") as elf_copy_file:
         b = BuildIdInspectorAndPatcher(elf_copy_file)
         assert b.get_build_info() == expected_result
 
         assert filecmp.cmp(elf_copy_file.name, elf_fixture_filename)
 
 
-def test_crc_build_id_unpopulated(capsys, snapshot):
+def test_crc_build_id_unpopulated(capsys, copy_file):
     elf_fixture_filename = os.path.join(ELF_FIXTURES_DIR, "crc32_build_id_unpopulated.elf")
     result_fixture_filename = os.path.join(ELF_FIXTURES_DIR, "crc32_build_id_populated.elf")
 
-    with open_copy(elf_fixture_filename, mode="rb") as elf_copy_file:
+    with open(copy_file(elf_fixture_filename), mode="rb") as elf_copy_file:
         b = BuildIdInspectorAndPatcher(elf_copy_file)
         b.check_or_update_crc_build_id("g_example_crc32_build_id")
 
@@ -210,13 +276,15 @@ def test_crc_build_id_unpopulated(capsys, snapshot):
 
     out, _ = capsys.readouterr()
     lines = out.splitlines()
-    snapshot.assert_match(lines)
+    assert lines == [
+        "Added CRC32 Generated Build ID at 'g_example_crc32_build_id' to ELF: 0x8ac1e1ca"
+    ]
 
 
-def test_crc_build_id_unpopulated_dump_only(capsys, snapshot):
+def test_crc_build_id_unpopulated_dump_only(capsys, copy_file):
     elf_fixture_filename = os.path.join(ELF_FIXTURES_DIR, "crc32_build_id_unpopulated.elf")
 
-    with open_copy(elf_fixture_filename, mode="rb") as elf_copy_file:
+    with open(copy_file(elf_fixture_filename), mode="rb") as elf_copy_file:
         b = BuildIdInspectorAndPatcher(elf_copy_file)
         b.check_or_update_crc_build_id("g_example_crc32_build_id", dump_only=True)
 
@@ -225,13 +293,13 @@ def test_crc_build_id_unpopulated_dump_only(capsys, snapshot):
 
     out, _ = capsys.readouterr()
     lines = out.splitlines()
-    snapshot.assert_match(lines)
+    assert lines == ["CRC32 Build ID at 'g_example_crc32_build_id' is not written"]
 
 
-def test_crc_build_id_populated(capsys, snapshot):
+def test_crc_build_id_populated(capsys, copy_file):
     elf_fixture_filename = os.path.join(ELF_FIXTURES_DIR, "crc32_build_id_populated.elf")
 
-    with open_copy(elf_fixture_filename, mode="rb") as elf_copy_file:
+    with open(copy_file(elf_fixture_filename), mode="rb") as elf_copy_file:
         b = BuildIdInspectorAndPatcher(elf_copy_file)
         b.check_or_update_crc_build_id("g_example_crc32_build_id")
 
@@ -239,7 +307,9 @@ def test_crc_build_id_populated(capsys, snapshot):
 
     out, _ = capsys.readouterr()
     lines = out.splitlines()
-    snapshot.assert_match(lines)
+    assert lines == [
+        "CRC32 Generated Build ID at 'g_example_crc32_build_id' to ELF already written: 0x8ac1e1ca"
+    ]
 
 
 def test_crc_build_id_in_bss():

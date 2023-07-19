@@ -6,16 +6,17 @@
 //! @brief
 //! CLI commands which require integration of the "panic" component.
 
-#include "memfault-firmware-sdk/components/include/memfault/demo/cli.h"
-
+#include <inttypes.h>
 #include <stdlib.h>
 
+#include "memfault-firmware-sdk/components/include/memfault/core/arch.h"
 #include "memfault-firmware-sdk/components/include/memfault/core/compiler.h"
 #include "memfault-firmware-sdk/components/include/memfault/core/debug_log.h"
 #include "memfault-firmware-sdk/components/include/memfault/core/errors.h"
 #include "memfault-firmware-sdk/components/include/memfault/core/platform/core.h"
 #include "memfault-firmware-sdk/components/include/memfault/core/platform/device_info.h"
 #include "memfault-firmware-sdk/components/include/memfault/core/reboot_tracking.h"
+#include "memfault-firmware-sdk/components/include/memfault/demo/cli.h"
 #include "memfault-firmware-sdk/components/include/memfault/panics/assert.h"
 #include "memfault-firmware-sdk/components/include/memfault/panics/coredump.h"
 #include "memfault-firmware-sdk/components/include/memfault/panics/platform/coredump.h"
@@ -110,3 +111,92 @@ int memfault_demo_cli_cmd_clear_core(MEMFAULT_UNUSED int argc, MEMFAULT_UNUSED c
   memfault_platform_coredump_storage_clear();
   return 0;
 }
+
+int memfault_demo_cli_cmd_assert(int argc, char *argv[]) {
+  // permit running with a user-provided "extra" value for testing that path
+  if (argc > 1) {
+    MEMFAULT_ASSERT_RECORD(atoi(argv[1]));
+  } else {
+    MEMFAULT_ASSERT(0);
+  }
+}
+
+#if MEMFAULT_COMPILER_ARM_CORTEX_M
+
+int memfault_demo_cli_cmd_hardfault(MEMFAULT_UNUSED int argc, MEMFAULT_UNUSED char *argv[]) {
+  memfault_arch_disable_configurable_faults();
+
+  uint64_t *buf = g_memfault_unaligned_buffer;
+  *buf = 0xdeadbeef0000;
+
+  return -1;
+}
+
+int memfault_demo_cli_cmd_memmanage(MEMFAULT_UNUSED int argc, MEMFAULT_UNUSED char *argv[]) {
+  // Per "Relation of the MPU to the system memory map" in ARMv7-M reference manual:
+  //
+  // "The MPU is restricted in how it can change the default memory map attributes associated with
+  //  System space, that is, for addresses 0xE0000000 and higher. System space is always marked as
+  //  XN, Execute Never."
+  //
+  // So we can trip a MemManage exception by simply attempting to execute any addresss >=
+  // 0xE000.0000
+  void (*bad_func)(void) = (void (*)(void))0xEEEEDEAD;
+  bad_func();
+
+  // We should never get here -- platforms MemManage or HardFault handler should be tripped
+  return -1;
+}
+
+int memfault_demo_cli_cmd_busfault(MEMFAULT_UNUSED int argc, MEMFAULT_UNUSED char *argv[]) {
+  void (*unaligned_func)(void) = (void (*)(void))0x50000001;
+  unaligned_func();
+
+  // We should never get here -- platforms BusFault or HardFault handler should be tripped
+  // with a precise error due to unaligned execution
+  return -1;
+}
+
+int memfault_demo_cli_cmd_usagefault(MEMFAULT_UNUSED int argc, MEMFAULT_UNUSED char *argv[]) {
+  uint64_t *buf = g_memfault_unaligned_buffer;
+  *buf = 0xbadcafe0000;
+
+  // We should never get here -- platforms UsageFault or HardFault handler should be tripped due to
+  // unaligned access
+  return -1;
+}
+
+int memfault_demo_cli_loadaddr(int argc, char *argv[]) {
+  if (argc < 2) {
+    MEMFAULT_LOG_ERROR("Usage: loadaddr <addr>");
+    return -1;
+  }
+  uint32_t addr = (uint32_t)strtoul(argv[1], NULL, 0);
+  uint32_t val = *(uint32_t *)addr;
+
+  MEMFAULT_LOG_INFO("Read 0x%08" PRIx32 " from 0x%08" PRIx32, val, (uint32_t)(uintptr_t)addr);
+  return 0;
+}
+
+#endif  // MEMFAULT_COMPILER_ARM_CORTEX_M
+
+#if MEMFAULT_COMPILER_ARM_V7_A_R
+
+int memfault_demo_cli_cmd_dataabort(MEMFAULT_UNUSED int argc, MEMFAULT_UNUSED char *argv[]) {
+  // try to write to a read-only address
+  volatile int explode = *(int *)0xFFFFFFFF;
+
+  return explode | 1;
+}
+
+int memfault_demo_cli_cmd_prefetchabort(MEMFAULT_UNUSED int argc, MEMFAULT_UNUSED char *argv[]) {
+  // We can trip a PrefetchAbort exception by simply attempting to execute any addresss >=
+  // 0xE000.0000
+  void (*bad_func)(void) = (void (*)(void))0xEEEEDEAD;
+  bad_func();
+
+  // We should never get here -- platforms PrefetchAbort handler should be tripped
+  return -1;
+}
+
+#endif  // MEMFAULT_COMPILER_ARM_V7_A_R

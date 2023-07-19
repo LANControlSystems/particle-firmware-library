@@ -34,6 +34,19 @@
 extern "C" {
 #endif
 
+#define MEMFAULT_LOG_EXPORT_BASE64_CHUNK_PREFIX "ML:"  // *M*emfault *L*og
+#define MEMFAULT_LOG_EXPORT_BASE64_CHUNK_PREFIX_LEN \
+  MEMFAULT_STATIC_STRLEN(MEMFAULT_LOG_EXPORT_BASE64_CHUNK_PREFIX)
+
+#define MEMFAULT_LOG_EXPORT_BASE64_CHUNK_SUFFIX ":"
+#define MEMFAULT_LOG_EXPORT_BASE64_CHUNK_SUFFIX_LEN \
+  MEMFAULT_STATIC_STRLEN(MEMFAULT_LOG_EXPORT_BASE64_CHUNK_SUFFIX)
+
+#define MEMFAULT_LOG_EXPORT_BASE64_CHUNK_MAX_LEN                   \
+  (MEMFAULT_LOG_EXPORT_BASE64_CHUNK_PREFIX_LEN +                   \
+   MEMFAULT_BASE64_ENCODE_LEN(MEMFAULT_LOG_EXPORT_CHUNK_MAX_LEN) + \
+   MEMFAULT_LOG_EXPORT_BASE64_CHUNK_SUFFIX_LEN + 1 /* '\0' */)
+
 //! Must be called on boot to initialize the Memfault logging module
 //!
 //! @param buffer The ram buffer to save logs into
@@ -56,7 +69,7 @@ void memfault_log_set_min_save_level(eMemfaultPlatformLogLevel min_log_level);
 //! For example, if your platform already has something like this
 //!
 //! #define YOUR_PLATFORM_LOG_ERROR(...)
-//!   my_platform_log_error(__VA_ARGS__)
+//!   your_platform_log_error(__VA_ARGS__)
 //!
 //! the error data could be automatically recorded by making the
 //! following modification
@@ -108,6 +121,10 @@ void memfault_compact_log_save(eMemfaultPlatformLogLevel level, uint32_t log_id,
 void memfault_log_save_preformatted(eMemfaultPlatformLogLevel level, const char *log,
                                     size_t log_len);
 
+//! As above, but do not acquire a lock internally.
+void memfault_log_save_preformatted_nolock(eMemfaultPlatformLogLevel level, const char *log,
+                                           size_t log_len);
+
 typedef enum {
   kMemfaultLogRecordType_Preformatted = 0,
   kMemfaultLogRecordType_Compact = 1,
@@ -154,6 +171,25 @@ typedef struct {
 //!       my_platform_uart_println(log.level, log, log.msg_len);
 //!   }
 bool memfault_log_read(sMemfaultLog *log);
+
+//! Utility that formats and outputs a log via the output medium defined in
+//! `memfault_log_export_msg`.
+//!
+//! @note In case the log message is stored in the binary "compact log" format, the message is first
+//! formatted as 'ML:COMPACT_LOG_DATA_BASE64_ENCODED:'
+//! A python library for decoding compact logs can be found here:
+//! https://pypi.org/project/mflt-compact-log/
+void memfault_log_export_log(sMemfaultLog *log);
+
+//! Helper function that repeatedly calls memfault_log_read() until there are no more logs
+//! available. For each log `memfault_log_export_log` is called.
+void memfault_log_export_logs(void);
+
+//! Called as part of memfault_log_export() for every time a log message needs to be exported.
+//!
+//! @note This is a weak function that by default calls `memfault_platform_log_raw`. It can be
+//! overriden to change the formatting of the output, as well as where it is stored.
+extern void memfault_log_export_msg(eMemfaultPlatformLogLevel level, const char *msg, size_t msg_len);
 
 //! Invoked every time a new log has been saved
 //!
