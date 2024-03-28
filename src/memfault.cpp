@@ -424,11 +424,11 @@ size_t memfault_platform_sanitize_address_range(void *start_addr,
   // Note: This is grabbed from the linker script and makes the assumption that
   // there is only 1 contiguous RAM region. While this is true for the NRF52840,
   // it does not hold for all MCUs so this may need to be adjusted.
-  extern uint32_t platform_ram_start[];
-  extern uint32_t platform_ram_end[];
+  extern uint32_t _ram_start[];
+  extern uint32_t _ram_end[];
 
-  const uint32_t ram_start = (uint32_t)platform_ram_start;
-  const uint32_t ram_end = (uint32_t)platform_ram_end;
+  const uint32_t ram_start = (uint32_t)_ram_start;
+  const uint32_t ram_end = (uint32_t)_ram_end;
 
   if ((uint32_t)start_addr >= ram_start && (uint32_t)start_addr < ram_end) {
     return MEMFAULT_MIN(desired_size, ram_end - (uint32_t)start_addr);
