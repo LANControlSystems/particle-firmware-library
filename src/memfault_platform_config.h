@@ -73,7 +73,7 @@ extern "C" {
 #endif
 
 // Mapping to Memfault logging API can be found in memfault_platform_log_config.h
-#define MEMFAULT_PLATFORM_HAS_LOG_CONFIG 1
+//#define MEMFAULT_PLATFORM_HAS_LOG_CONFIG 1
 
 #ifndef MEMFAULT_PARTICLE_PORT_LOGGING_ENABLE
 #define MEMFAULT_PARTICLE_PORT_LOGGING_ENABLE 1
