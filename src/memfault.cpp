@@ -10,7 +10,6 @@
 #define PARTICLE_USE_UNSTABLE_API
 #include "deviceid_hal.h"
 #include "system_version.h"
-
 #include "memfault.h"
 
 #include "logging.h"
@@ -234,7 +233,7 @@ int Memfault::run_debug_cli_command(const char *command, int argc, char **argv) 
 
 void Memfault::handle_cloud_connectivity_event(system_event_t event, int param) {
   if (event != cloud_status) {
-    MEMFAULT_LOG_ERROR("Unexpected cloud event type: %d", event);
+    MEMFAULT_LOG_ERROR("Unexpected cloud event type: %lld", event);
     return;
   }
 
@@ -441,10 +440,10 @@ memfault_platform_coredump_get_regions(const sCoredumpCrashInfo *crash_info,
                                        size_t *num_regions) {
   int region_idx = 0;
 
-  static sMfltCoredumpRegion s_coredump_regions[16];
+  static sMfltCoredumpRegion s_coredump_regions[MEMFAULT_PARTICLE_PORT_COREDUMP_MAX_TASK_REGIONS];
 
   // first, capture the stack that was active at the time of crash
-  const size_t active_stack_size_to_collect = 512;
+  const size_t active_stack_size_to_collect = MEMFAULT_PLATFORM_ACTIVE_STACK_SIZE_TO_COLLECT;
   s_coredump_regions[region_idx++] = MEMFAULT_COREDUMP_MEMORY_REGION_INIT(
       crash_info->stack_address,
       memfault_platform_sanitize_address_range(crash_info->stack_address,
