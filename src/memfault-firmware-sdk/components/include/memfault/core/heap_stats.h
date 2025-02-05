@@ -3,7 +3,7 @@
 //! @file
 //!
 //! Copyright (c) Memfault, Inc.
-//! See License.txt for details
+//! See LICENSE for details
 //!
 //! @brief
 //!
@@ -16,7 +16,7 @@
 //! compiler flag `-Wl,--wrap=malloc,--wrap=free` to shim around the library malloc- in that case,
 //! these functions should be added to your platform port:
 //!
-//! #include memfault/components.h
+//! #include memfault-firmware-sdk/components/include/memfault/components.h
 //!
 //! extern void *__real_malloc(size_t size);
 //! extern void __real_free(void *ptr);
@@ -42,7 +42,6 @@
 //! memfault_platform_config.h:
 //!
 //! #define MEMFAULT_COREDUMP_HEAP_STATS_LOCK_ENABLE 0
-
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -81,6 +80,12 @@ void memfault_heap_stats_malloc(const void *lr, const void *ptr, size_t size);
 void memfault_heap_stats_free(const void *ptr);
 
 #define MEMFAULT_HEAP_STATS_FREE(ptr_) memfault_heap_stats_free(ptr_)
+
+//! These functions can be used to manually increment and decrement the
+//! in_use_block_count. This is useful if the application has custom memory
+//! tracing that provides more detailed information than just malloc/free.
+void memfault_heap_stats_decrement_in_use_block_count(void);
+void memfault_heap_stats_increment_in_use_block_count(void);
 
 #ifdef __cplusplus
 }

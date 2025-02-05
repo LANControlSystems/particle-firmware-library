@@ -3,7 +3,7 @@
 //! @file
 //!
 //! Copyright (c) Memfault, Inc.
-//! See License.txt for details
+//! See LICENSE for details
 //!
 //! @brief
 //! Task watchdog API.
@@ -73,7 +73,7 @@ extern "C" {
 #define MEMFAULT_TASK_WATCHDOG_CHANNEL_DEFINE(channel_) kMemfaultTaskWatchdogChannel_##channel_,
 typedef enum {
 #if MEMFAULT_TASK_WATCHDOG_ENABLE
-#include "memfault_task_watchdog_config.def"
+  #include "memfault_task_watchdog_config.def"
 #else
   // define one channel to prevent the compiler from complaining about a zero-length array
   MEMFAULT_TASK_WATCHDOG_CHANNEL_DEFINE(placeholder_)

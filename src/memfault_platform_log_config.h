@@ -13,7 +13,7 @@ extern "C" {
 #endif
 
 #include "logging.h"
-#include "memfault-firmware-sdk/components/include/memfault/config.h"
+#include "memfault-firmware-sdk/components/include/memfault/memfault-firmware-sdk/components/include/memfault/config.h"
 
 #if MEMFAULT_PARTICLE_PORT_LOGGING_ENABLE
 

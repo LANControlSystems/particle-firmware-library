@@ -1,14 +1,11 @@
 //! @file
 //!
 //! Copyright (c) Memfault, Inc.
-//! See License.txt for details
+//! See LICENSE for details
 //!
 //! @brief
 //! Minimal shell/console implementation for platforms that do not include one.
 //! NOTE: For simplicity, ANSI escape sequences are not dealt with!
-
-#include "memfault-firmware-sdk/components/include/memfault/demo/shell.h"
-#include "memfault-firmware-sdk/components/include/memfault/demo/shell_commands.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -16,14 +13,30 @@
 
 #include "memfault-firmware-sdk/components/include/memfault/config.h"
 #include "memfault-firmware-sdk/components/include/memfault/core/compiler.h"
+#include "memfault-firmware-sdk/components/include/memfault/demo/shell.h"
+#include "memfault-firmware-sdk/components/include/memfault/demo/shell_commands.h"
 
 #define MEMFAULT_SHELL_MAX_ARGS (16)
 #define MEMFAULT_SHELL_PROMPT "mflt> "
 
-#define MEMFAULT_SHELL_FOR_EACH_COMMAND(command) \
-  for (const sMemfaultShellCommand *command = g_memfault_shell_commands; \
-    command < &g_memfault_shell_commands[g_memfault_num_shell_commands]; \
-    ++command)
+#if defined(MEMFAULT_DEMO_SHELL_COMMAND_EXTENSIONS)
+  // When the extension list is enabled, iterate over both the core commands and
+  // the extension commands. This construct, despite being pretty intricate,
+  // saves about ~28 bytes of code space over running the iteration twice in a
+  // row, and keeps the iterator in one macro, instead of two.
+  #define MEMFAULT_SHELL_FOR_EACH_COMMAND(command)                                                 \
+    const sMemfaultShellCommand *command = g_memfault_shell_commands;                              \
+    for (size_t i = 0; i < g_memfault_num_shell_commands + s_mflt_shell.num_extension_commands;    \
+         ++i, command = (i < g_memfault_num_shell_commands) ?                                      \
+                          &g_memfault_shell_commands[i] :                                          \
+                          (s_mflt_shell.extension_commands ?                                       \
+                             &s_mflt_shell.extension_commands[i - g_memfault_num_shell_commands] : \
+                             NULL))
+#else
+  #define MEMFAULT_SHELL_FOR_EACH_COMMAND(command)                         \
+    for (const sMemfaultShellCommand *command = g_memfault_shell_commands; \
+         command < &g_memfault_shell_commands[g_memfault_num_shell_commands]; ++command)
+#endif
 
 static struct MemfaultShellContext {
   int (*send_char)(char c);
@@ -31,6 +44,10 @@ static struct MemfaultShellContext {
   // the char we will ignore when received end-of-line sequences
   char eol_ignore_char;
   char rx_buffer[MEMFAULT_DEMO_SHELL_RX_BUFFER_SIZE];
+#if defined(MEMFAULT_DEMO_SHELL_COMMAND_EXTENSIONS)
+  const sMemfaultShellCommand *extension_commands;
+  size_t num_extension_commands;
+#endif
 } s_mflt_shell;
 
 static bool prv_booted(void) {
@@ -81,7 +98,7 @@ static void prv_send_prompt(void) {
 }
 
 static const sMemfaultShellCommand *prv_find_command(const char *name) {
-  MEMFAULT_SHELL_FOR_EACH_COMMAND(command) {
+  MEMFAULT_SHELL_FOR_EACH_COMMAND (command) {
     if (strcmp(command->command, name) == 0) {
       return command;
     }
@@ -94,7 +111,7 @@ static void prv_process(void) {
     return;
   }
 
-  char *argv[MEMFAULT_SHELL_MAX_ARGS] = {0};
+  char *argv[MEMFAULT_SHELL_MAX_ARGS] = { 0 };
   int argc = 0;
 
   char *next_arg = NULL;
@@ -137,6 +154,14 @@ void memfault_demo_shell_boot(const sMemfaultShellImpl *impl) {
   prv_echo_str("\n" MEMFAULT_SHELL_PROMPT);
 }
 
+#if defined(MEMFAULT_DEMO_SHELL_COMMAND_EXTENSIONS)
+void memfault_shell_command_set_extensions(const sMemfaultShellCommand *const commands,
+                                           size_t num_commands) {
+  s_mflt_shell.extension_commands = commands;
+  s_mflt_shell.num_extension_commands = num_commands;
+}
+#endif
+
 //! Logic to deal with CR, LF, CRLF, or LFCR end-of-line (EOL) sequences
 //! @return true if the character should be ignored, false otherwise
 static bool prv_should_ignore_eol_char(char c) {
@@ -165,7 +190,7 @@ void memfault_demo_shell_receive_char(char c) {
 
   const bool is_backspace = (c == '\b');
   if (is_backspace && s_mflt_shell.rx_size == 0) {
-    return; // nothing left to delete so don't echo the backspace
+    return;  // nothing left to delete so don't echo the backspace
   }
 
   // CR are our EOL delimiter. Remap as a LF here since that's what internal handling logic expects
@@ -186,7 +211,7 @@ void memfault_demo_shell_receive_char(char c) {
 }
 
 int memfault_shell_help_handler(MEMFAULT_UNUSED int argc, MEMFAULT_UNUSED char *argv[]) {
-  MEMFAULT_SHELL_FOR_EACH_COMMAND(command) {
+  MEMFAULT_SHELL_FOR_EACH_COMMAND (command) {
     prv_echo_str(command->command);
     prv_echo_str(": ");
     prv_echo_str(command->help);

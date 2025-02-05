@@ -3,10 +3,10 @@
 //! @file
 //!
 //! Copyright (c) Memfault, Inc.
-//! See License.txt for details
+//! See LICENSE for details
 //!
 //! @brief
-//! Functions that can be optionally overriden by the user of the SDK.
+//! Functions that can be optionally overridden by the user of the SDK.
 //!
 //! Default "weak function" stub definitions are provided for each of these functions
 //! in the SDK itself

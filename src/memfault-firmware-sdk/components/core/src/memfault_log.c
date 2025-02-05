@@ -1,7 +1,7 @@
 //! @file
 //!
 //! Copyright (c) Memfault, Inc.
-//! See License.txt for details
+//! See LICENSE for details
 //!
 //! A simple RAM backed logging storage implementation. When a device crashes and the memory region
 //! is collected using the panics component, the logs will be decoded and displayed in the Memfault
@@ -28,7 +28,7 @@
 #include "memfault_log_private.h"
 
 #if MEMFAULT_LOG_DATA_SOURCE_ENABLED
-#include "memfault_log_data_source_private.h"
+  #include "memfault_log_data_source_private.h"
 #endif
 
 #define MEMFAULT_RAM_LOGGER_VERSION 1
@@ -46,10 +46,11 @@ typedef struct {
   // Can be changed with memfault_log_set_min_save_level()
   eMemfaultPlatformLogLevel min_log_level;
   uint32_t log_read_offset;
-  // The number of messages that were flushed without ever being read. If memfault_log_read() is
-  // not used by a platform, this will be equivalent to the number of messages logged since boot
-  // that are no longer in the log buffer.
+  // The total number of messages that were not recorded into the buffer, either
+  // due to lack of space, or if the buffer was locked by the data source.
   uint32_t dropped_msg_count;
+  // The total number of messages that were recorded into the buffer
+  uint32_t recorded_msg_count;
   sMfltCircularBuffer circ_buffer;
   // When initialized we keep track of the user provided storage buffer and crc the location +
   // size. When the system crashes we can check to see if this info has been corrupted in any way
@@ -62,9 +63,17 @@ static sMfltRamLogger s_memfault_ram_logger = {
 };
 
 static uint16_t prv_compute_log_region_crc16(void) {
-  return memfault_crc16_ccitt_compute(
-      MEMFAULT_CRC16_CCITT_INITIAL_VALUE, &s_memfault_ram_logger.region_info,
-      offsetof(sMfltLogStorageRegionInfo, crc16));
+  return memfault_crc16_ccitt_compute(MEMFAULT_CRC16_CCITT_INITIAL_VALUE,
+                                      &s_memfault_ram_logger.region_info,
+                                      offsetof(sMfltLogStorageRegionInfo, crc16));
+}
+
+uint32_t memfault_log_get_dropped_count(void) {
+  return s_memfault_ram_logger.dropped_msg_count;
+}
+
+uint32_t memfault_log_get_recorded_count(void) {
+  return s_memfault_ram_logger.recorded_msg_count;
 }
 
 bool memfault_log_get_regions(sMemfaultLogRegions *regions) {
@@ -78,18 +87,14 @@ bool memfault_log_get_regions(sMemfaultLogRegions *regions) {
     return false;
   }
 
-  *regions = (sMemfaultLogRegions) {
-    .region = {
-      {
-        .region_start = &s_memfault_ram_logger,
-        .region_size = sizeof(s_memfault_ram_logger),
-      },
-      {
-        .region_start = region_info->storage,
-        .region_size = region_info->len,
-      }
-    }
-  };
+  *regions = (sMemfaultLogRegions){ .region = { {
+                                                  .region_start = &s_memfault_ram_logger,
+                                                  .region_size = sizeof(s_memfault_ram_logger),
+                                                },
+                                                {
+                                                  .region_start = region_info->storage,
+                                                  .region_size = region_info->len,
+                                                } } };
   return true;
 }
 
@@ -133,11 +138,17 @@ static bool prv_try_free_space(sMfltCircularBuffer *circ_bufp, int bytes_needed)
 
   // Expire oldest logs until there is enough room available
   while (tot_read_space != 0) {
+    // Log lines are stored as 2 entries in the circular buffer:
+    // 1. sMfltRamLogEntry header
+    // 2. log message (compact or formatted)
+    // When freeing space, clear both the header and the message
     sMfltRamLogEntry curr_entry = { 0 };
     memfault_circular_buffer_read(circ_bufp, 0, &curr_entry, sizeof(curr_entry));
     const size_t space_to_free = curr_entry.len + sizeof(curr_entry);
 
-    if ((curr_entry.hdr & MEMFAULT_LOG_HDR_READ_MASK) != 0) {
+    if ((curr_entry.hdr & (MEMFAULT_LOG_HDR_READ_MASK | MEMFAULT_LOG_HDR_SENT_MASK)) != 0) {
+      // note: log_read_offset can safely wrap around, circular buffer API
+      // handles the modulo arithmetic
       s_memfault_ram_logger.log_read_offset -= space_to_free;
     } else {
       // We are removing a message that was not read via memfault_log_read().
@@ -152,15 +163,15 @@ static bool prv_try_free_space(sMfltCircularBuffer *circ_bufp, int bytes_needed)
     tot_read_space = memfault_circular_buffer_get_read_size(circ_bufp);
   }
 
-  return false; // should be unreachable
+  return false;  // should be unreachable
 }
 
 static void prv_iterate(MemfaultLogIteratorCallback callback, sMfltLogIterator *iter) {
   sMfltCircularBuffer *const circ_bufp = &s_memfault_ram_logger.circ_buffer;
   bool should_continue = true;
   while (should_continue) {
-    if (!memfault_circular_buffer_read(
-        circ_bufp, iter->read_offset, &iter->entry, sizeof(iter->entry))) {
+    if (!memfault_circular_buffer_read(circ_bufp, iter->read_offset, &iter->entry,
+                                       sizeof(iter->entry))) {
       return;
     }
 
@@ -183,9 +194,9 @@ void memfault_log_iterate(MemfaultLogIteratorCallback callback, sMfltLogIterator
 bool memfault_log_iter_update_entry(sMfltLogIterator *iter) {
   sMfltCircularBuffer *const circ_bufp = &s_memfault_ram_logger.circ_buffer;
   const size_t offset_from_end =
-      memfault_circular_buffer_get_read_size(circ_bufp) - iter->read_offset;
-  return memfault_circular_buffer_write_at_offset(
-      circ_bufp, offset_from_end, &iter->entry, sizeof(iter->entry));
+    memfault_circular_buffer_get_read_size(circ_bufp) - iter->read_offset;
+  return memfault_circular_buffer_write_at_offset(circ_bufp, offset_from_end, &iter->entry,
+                                                  sizeof(iter->entry));
 }
 
 bool memfault_log_iter_copy_msg(sMfltLogIterator *iter, MemfaultLogMsgCopyCallback callback) {
@@ -210,8 +221,8 @@ static bool prv_read_log_iter_callback(sMfltLogIterator *iter) {
     return false;
   }
 
-  if (!memfault_circular_buffer_read(
-      circ_bufp, iter->read_offset + sizeof(iter->entry), ctx->log->msg, iter->entry.len)) {
+  if (!memfault_circular_buffer_read(circ_bufp, iter->read_offset + sizeof(iter->entry),
+                                     ctx->log->msg, iter->entry.len)) {
     return false;
   }
 
@@ -224,25 +235,25 @@ static bool prv_read_log_iter_callback(sMfltLogIterator *iter) {
 }
 
 static bool prv_read_log(sMemfaultLog *log) {
-  if (s_memfault_ram_logger.dropped_msg_count) {
-    log->level = kMemfaultPlatformLogLevel_Warning;
-    const int rv = snprintf(log->msg, sizeof(log->msg), "... %d messages dropped ...",
-                                 (int)s_memfault_ram_logger.dropped_msg_count);
-    log->msg_len = (rv <= 0)  ? 0 : MEMFAULT_MIN((uint32_t)rv, sizeof(log->msg) - 1);
-    log->type = kMemfaultLogRecordType_Preformatted;
-    s_memfault_ram_logger.dropped_msg_count = 0;
-    return true;
+  static uint32_t s_last_dropped_count = 0;
+
+  if (s_last_dropped_count != s_memfault_ram_logger.dropped_msg_count) {
+    s_last_dropped_count = s_memfault_ram_logger.dropped_msg_count;
+    if (s_last_dropped_count > 0) {
+      log->level = kMemfaultPlatformLogLevel_Warning;
+      const int rv = snprintf(log->msg, sizeof(log->msg), "... %d messages dropped ...",
+                              (int)s_memfault_ram_logger.dropped_msg_count);
+      log->msg_len = (rv <= 0) ? 0 : MEMFAULT_MIN((uint32_t)rv, sizeof(log->msg) - 1);
+      log->type = kMemfaultLogRecordType_Preformatted;
+      return true;
+    }
   }
 
-  sMfltReadLogCtx user_ctx = {
-    .log = log
-  };
+  sMfltReadLogCtx user_ctx = { .log = log };
 
-  sMfltLogIterator iter = {
-    .read_offset = s_memfault_ram_logger.log_read_offset,
+  sMfltLogIterator iter = { .read_offset = s_memfault_ram_logger.log_read_offset,
 
-    .user_ctx = &user_ctx
-  };
+                            .user_ctx = &user_ctx };
 
   prv_iterate(prv_read_log_iter_callback, &iter);
   s_memfault_ram_logger.log_read_offset = iter.read_offset;
@@ -306,18 +317,29 @@ void memfault_log_export_log(sMemfaultLog *log) {
 
 void memfault_log_export_logs(void) {
   while (1) {
-    // the TI ARM compiler warns about enumerated type mismatch in this
-    // zero-initializer, but we depend on the C99 spec (vs. the gcc extension,
-    // empty brace {}), so suppress the diagnostic here. Clang throws an invalid
-    // -Wmissing-field-initializers warning if we just cast, unfortunately.
-    #if defined(__TI_ARM__)
-      #pragma diag_push
-      #pragma diag_remark 190
-    #endif
-    sMemfaultLog log = {0};
-    #if defined(__TI_ARM__)
-      #pragma diag_pop
-    #endif
+// the TI ARM compiler warns about enumerated type mismatch in this
+// zero-initializer, but we depend on the C99 spec (vs. the gcc extension,
+// empty brace {}), so suppress the diagnostic here. Clang throws an invalid
+// -Wmissing-field-initializers warning if we just cast, unfortunately.
+#if defined(__TI_ARM__)
+  #pragma diag_push
+  #pragma diag_remark 190
+#endif
+#if defined(__CC_ARM)
+  #pragma push
+  // This armcc diagnostic is technically violating the C standard, which
+  // _explicitly_ requires enums to be type-equivalent to ints. See ISO/IEC
+  // 9899:TC3 6.2.5.16, and specifically 6.4.4.3, which states: "An
+  // identifier declared as an enumeration constant has type int."
+  #pragma diag_suppress 188  // enumerated type mixed with another type
+#endif
+    sMemfaultLog log = { 0 };
+#if defined(__TI_ARM__)
+  #pragma diag_pop
+#endif
+#if defined(__CC_ARM)
+  #pragma pop
+#endif
 
     const bool log_found = memfault_log_read(&log);
     if (!log_found) {
@@ -390,13 +412,16 @@ static void prv_log_save(eMemfaultPlatformLogLevel level, const void *log, size_
     sMfltCircularBuffer *circ_bufp = &s_memfault_ram_logger.circ_buffer;
     const bool space_free = prv_try_free_space(circ_bufp, (int)bytes_needed);
     if (space_free) {
-        sMfltRamLogEntry entry = {
-          .len = (uint8_t)truncated_log_len,
-          .hdr = prv_build_header(level, log_type),
-        };
-        memfault_circular_buffer_write(circ_bufp, &entry, sizeof(entry));
-        memfault_circular_buffer_write(circ_bufp, log, truncated_log_len);
-        log_written = true;
+      s_memfault_ram_logger.recorded_msg_count++;
+      sMfltRamLogEntry entry = {
+        .len = (uint8_t)truncated_log_len,
+        .hdr = prv_build_header(level, log_type),
+      };
+      memfault_circular_buffer_write(circ_bufp, &entry, sizeof(entry));
+      memfault_circular_buffer_write(circ_bufp, log, truncated_log_len);
+      log_written = true;
+    } else {
+      s_memfault_ram_logger.dropped_msg_count++;
     }
   }
   if (should_lock) {
@@ -433,9 +458,8 @@ void memfault_compact_log_save(eMemfaultPlatformLogLevel level, uint32_t log_id,
 
 #endif /* MEMFAULT_COMPACT_LOG_ENABLE */
 
-
-void memfault_log_save_preformatted(eMemfaultPlatformLogLevel level,
-                                    const char *log, size_t log_len) {
+void memfault_log_save_preformatted(eMemfaultPlatformLogLevel level, const char *log,
+                                    size_t log_len) {
   prv_log_save(level, log, log_len, kMemfaultLogRecordType_Preformatted, true);
 }
 
@@ -449,7 +473,7 @@ bool memfault_log_boot(void *storage_buffer, size_t buffer_len) {
     return false;
   }
 
-  s_memfault_ram_logger = (sMfltRamLogger) {
+  s_memfault_ram_logger = (sMfltRamLogger){
     .version = MEMFAULT_RAM_LOGGER_VERSION,
     .min_log_level = MEMFAULT_RAM_LOGGER_DEFAULT_MIN_LOG_LEVEL,
     .region_info = {
@@ -468,7 +492,11 @@ bool memfault_log_boot(void *storage_buffer, size_t buffer_len) {
 }
 
 void memfault_log_reset(void) {
-  s_memfault_ram_logger = (sMfltRamLogger) {
+  s_memfault_ram_logger = (sMfltRamLogger){
     .enabled = false,
   };
+}
+
+bool memfault_log_booted(void) {
+  return s_memfault_ram_logger.enabled;
 }

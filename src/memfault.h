@@ -52,6 +52,14 @@ class Memfault {
   //! heartbeat metrics
   void handle_cloud_connectivity_event(system_event_t event, int param);
 
+  // update battery charge state
+  void battery_charge_state_update();
+
+  // update connectivity path metrics
+  void update_connectivity_path();
+
   //! true if a particle cloud connection is available, false otherwise
   bool m_connected;
+
+  int m_path;
 };

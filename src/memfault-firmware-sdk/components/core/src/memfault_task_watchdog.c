@@ -1,7 +1,7 @@
 //! @file
 //!
 //! Copyright (c) Memfault, Inc.
-//! See License.txt for details
+//! See LICENSE for details
 //!
 //! Task watchdog implementation.
 
@@ -28,7 +28,7 @@ sMemfaultTaskWatchdogInfo g_memfault_task_channel_info;
 static const uint32_t s_watchdog_timeout_ms = MEMFAULT_TASK_WATCHDOG_TIMEOUT_INTERVAL_MS;
 
 void memfault_task_watchdog_init(void) {
-  g_memfault_task_channel_info = (struct MemfaultTaskWatchdogInfo){0};
+  g_memfault_task_channel_info = (struct MemfaultTaskWatchdogInfo){ 0 };
 }
 
 static bool prv_memfault_task_watchdog_expired(struct MemfaultTaskWatchdogChannel channel,
@@ -59,7 +59,7 @@ void memfault_task_watchdog_check_all(void) {
 
   // if any channel reached expiration, trigger a panic
   if (expired_channels_count > 0) {
-    MEMFAULT_SOFTWARE_WATCHDOG();
+    MEMFAULT_TASK_WATCHDOG();
   } else {
     memfault_task_watchdog_platform_refresh_callback();
   }
@@ -89,10 +89,10 @@ void memfault_task_watchdog_stop(eMemfaultTaskWatchdogChannel channel_id) {
 
 //! Callback which is called when there are no expired tasks; can be used for
 //! example to reset a hardware watchdog
-MEMFAULT_WEAK void memfault_task_watchdog_platform_refresh_callback(void) {}
+MEMFAULT_WEAK void memfault_task_watchdog_platform_refresh_callback(void) { }
 
 #else  // MEMFAULT_TASK_WATCHDOG_ENABLE
 
-void memfault_task_watchdog_bookkeep(void) {}
+void memfault_task_watchdog_bookkeep(void) { }
 
 #endif  // MEMFAULT_TASK_WATCHDOG_ENABLE

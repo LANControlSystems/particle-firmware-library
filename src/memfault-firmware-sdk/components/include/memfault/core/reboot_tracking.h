@@ -3,7 +3,7 @@
 //! @file
 //!
 //! Copyright (c) Memfault, Inc.
-//! See License.txt for details
+//! See LICENSE for details
 //!
 //! @brief
 //! A subsystem which can (optionally) be used to trace _all_ reboots taking place on the system
@@ -23,6 +23,7 @@
 #include <inttypes.h>
 #include <stddef.h>
 
+#include "memfault-firmware-sdk/components/include/memfault/core/compiler.h"
 #include "memfault-firmware-sdk/components/include/memfault/core/event_storage.h"
 #include "memfault-firmware-sdk/components/include/memfault/core/reboot_reason_types.h"
 
@@ -61,9 +62,6 @@ typedef struct MfltRebootType {
   //! * a reason determined from the reboot register at bootup
   eMemfaultRebootReason prior_stored_reason;
 } sMfltRebootReason;
-
-//! Value used to determine state of reboot tracking data
-#define MEMFAULT_REBOOT_REASON_NOT_SET 0xffffffff
 
 #define MEMFAULT_REBOOT_TRACKING_REGION_SIZE 64
 
@@ -108,6 +106,27 @@ typedef struct MfltRebootTrackingRegInfo {
 //! @param reg Register state at the time the reboot was initiated or NULL if no state is available
 void memfault_reboot_tracking_mark_reset_imminent(eMemfaultRebootReason reboot_reason,
                                                   const sMfltRebootTrackingRegInfo *reg);
+
+//! Helper macro to capture the current pc & lr and call
+//! memfault_reboot_tracking_mark_reset_imminent
+#define MEMFAULT_REBOOT_MARK_RESET_IMMINENT(reason_)                       \
+  do {                                                                     \
+    void *mflt_pc;                                                         \
+    MEMFAULT_GET_PC(mflt_pc);                                              \
+    void *mflt_lr;                                                         \
+    MEMFAULT_GET_LR(mflt_lr);                                              \
+    sMfltRebootTrackingRegInfo mflt_reg_info = {                           \
+      .pc = (uint32_t)(uintptr_t)mflt_pc,                                  \
+      .lr = (uint32_t)(uintptr_t)mflt_lr,                                  \
+    };                                                                     \
+    memfault_reboot_tracking_mark_reset_imminent(reason_, &mflt_reg_info); \
+  } while (0)
+
+//! Helper macro that behaves the same as `MEMFAULT_REBOOT_MARK_RESET_IMMINENT` but allows
+//! for a custom reboot reason to be specified without needed to use the
+//! `MEMFAULT_REBOOT_REASON_KEY` macro
+#define MEMFAULT_REBOOT_MARK_RESET_IMMINENT_CUSTOM(reason_) \
+  MEMFAULT_REBOOT_MARK_RESET_IMMINENT(MEMFAULT_REBOOT_REASON_KEY(reason_))
 
 //! Collects recent reset info and pushes it to memfault_event_storage so that the data can
 //! can be sent out using the Memfault data packetizer
@@ -159,6 +178,91 @@ int memfault_reboot_tracking_get_reboot_reason(sMfltRebootReason *reboot_reason)
 //! @param unexpected_reboot_occurred Pointer to store boolean marking an unexpected reboot
 //! @return 0 on success, or 1 if the result is invalid or the input parameter is NULL
 int memfault_reboot_tracking_get_unexpected_reboot_occurred(bool *unexpected_reboot_occurred);
+
+//! Checks if reboot tracking component has booted
+//!
+//! @returns true if reboot tracking component booted or false if not
+bool memfault_reboot_tracking_booted(void);
+
+//! Set or clear the "active" property for a Metrics Session. This is used when
+//! a session starts and stops, for tracking which sessions were active when a
+//! reboot occurred.
+//!
+//! @param activate True if the session is active, false if it is not
+//! @param index The index of the session
+void memfault_reboot_tracking_metrics_session(bool activate, uint32_t index);
+
+//! Clear the reboot tracking data for "active" Metrics Sessions. This is used
+//! on reboot to reset the persisted active state of all sessions.
+void memfault_reboot_tracking_clear_metrics_sessions(void);
+
+//! Check if a Metrics Session was active when a reboot occurred
+//!
+//! @param index The index of the session
+bool memfault_reboot_tracking_metrics_session_was_active(uint32_t index);
+
+#if MEMFAULT_REBOOT_REASON_CUSTOM_ENABLE == 1
+  //! Defines a customer specific reboot reason.
+  //!
+  //! These allow for custom reboot reasons to be defined which can be used to track
+  //! the root cause of a reboot that is not captured by the default set of reboot reasons.
+  //!
+  //! There are two types of reboot reasons:
+  //! 1. Expected: These are reboots which are expected to happen as part of normal operation.
+  //!    For example, a user initiated reboot. These can be specified using
+  //!    MEMFAULT_EXPECTED_REBOOT_REASON_DEFINE.
+  //! 2. Unexpected: These are reboots which are not expected to happen as part of normal operation.
+  //!    For example, a watchdog reset, or overcurrent event. These can be specified using
+  //!    MEMFAULT_UNEXPECTED_REBOOT_REASON_DEFINE.
+  #define MEMFAULT_EXPECTED_REBOOT_REASON_DEFINE(_name) MEMFAULT_REBOOT_REASON_DEFINE_TRAP_()
+  #define MEMFAULT_UNEXPECTED_REBOOT_REASON_DEFINE(_name) MEMFAULT_REBOOT_REASON_DEFINE_TRAP_()
+
+  //! Stub define to detect accidental usage outside of the user reboot reason file
+  #define MEMFAULT_REBOOT_REASON_DEFINE_TRAP_()                                                 \
+    MEMFAULT_STATIC_ASSERT(false, "MEMFAULT_EXPECTED_REBOOT_REASON_DEFINE should only be used " \
+                                  "in " MEMFAULT_METRICS_USER_HEARTBEAT_DEFS_FILE);
+#endif
+
+//! Convenience macro to use a custom reboot reason key
+//!
+//! This macro is used to convert a custom reboot reason name to a key that can be used to
+//! track the reboot reason since
+//! @param name The name of the custom reboot reason
+#define MEMFAULT_REBOOT_REASON_KEY(name) kMfltRebootReason_##name
+
+//! The below pair of functions, memfault_reboot_tracking_load and
+//! memfault_reboot_tracking_save, are used when the reboot tracking RAM storage
+//! cannot be safely persisted across reboots. In this case, the user can
+//! provide their own implementation to load and save the reboot tracking data
+//! to a backing store (e.g. battery-backed ram, non-memory-mapped backup
+//! registers, etc).
+//!
+//! memfault_reboot_tracking_load() is called from
+//! memfault_reboot_tracking_boot(), and is used to retrieve the initial value
+//! of the reboot tracking data from the backing store.
+//!
+//! memfault_reboot_tracking_save() is called from
+//! memfault_reboot_tracking_mark_reset_imminent(), and is used to persist the
+//! reboot tracking data to the backing store.
+
+typedef MEMFAULT_PACKED_STRUCT MemfaultRebootTrackingStorage {
+  uint8_t data[MEMFAULT_REBOOT_TRACKING_REGION_SIZE];
+}
+sMemfaultRebootTrackingStorage;
+
+//! Optional callback issued to load reboot tracking from the backing store,
+//! called during Memfault reboot tracking initialization.
+//!
+//! @param dst The destination buffer to load into
+extern void memfault_reboot_tracking_load(sMemfaultRebootTrackingStorage *dst);
+
+//! Optional callback issued when reboot tracking data should be saved to the
+//! backing store, for persistence across reboots. This function MUST be safe
+//! to call from exception context! It is called from the Memfault fault handler
+//! before the coredump is saved.
+//!
+//! @param src The source buffer to save
+extern void memfault_reboot_tracking_save(const sMemfaultRebootTrackingStorage *src);
 
 #ifdef __cplusplus
 }

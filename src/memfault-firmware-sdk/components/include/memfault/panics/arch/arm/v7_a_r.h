@@ -3,7 +3,7 @@
 //! @file
 //!
 //! Copyright (c) Memfault, Inc.
-//! See License.txt for details
+//! See LICENSE for details
 //!
 //! @brief
 //! ARMv7-R (Cortex-R) specific aspects of panic handling
@@ -17,7 +17,7 @@
 extern "C" {
 #endif
 
-//! Register State collected for ARMv7-R when a fault occurs. Non-arch-specific
+//! Register State collected for ARMv7-A/R when a fault occurs. Non-arch-specific
 //! name for the struct type- this type is used when defining the coredump
 //! header layout.
 MEMFAULT_PACKED_STRUCT MfltRegState {

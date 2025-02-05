@@ -1,7 +1,7 @@
 //! @file
 //!
 //! Copyright (c) Memfault, Inc.
-//! See License.txt for details
+//! See LICENSE for details
 //!
 //! @brief
 //! Fault handling for Xtensa based architectures
@@ -12,6 +12,7 @@
   #include "memfault-firmware-sdk/components/include/memfault/core/platform/core.h"
   #include "memfault-firmware-sdk/components/include/memfault/core/reboot_tracking.h"
   #include "memfault-firmware-sdk/components/include/memfault/panics/arch/xtensa/xtensa.h"
+  #include "memfault-firmware-sdk/components/include/memfault/panics/assert.h"
   #include "memfault-firmware-sdk/components/include/memfault/panics/coredump.h"
   #include "memfault-firmware-sdk/components/include/memfault/panics/coredump_impl.h"
 
@@ -23,6 +24,10 @@ const sMfltCoredumpRegion *memfault_coredump_get_arch_regions(size_t *num_region
 static eMemfaultRebootReason s_crash_reason = kMfltRebootReason_Unknown;
 
 static void prv_fault_handling_assert(void *pc, void *lr, eMemfaultRebootReason reason) {
+  if (s_crash_reason != kMfltRebootReason_Unknown) {
+    // we've already been called once, ignore the second call
+    return;
+  }
   sMfltRebootTrackingRegInfo info = {
     .pc = (uint32_t)pc,
     .lr = (uint32_t)lr,
@@ -35,15 +40,93 @@ void memfault_arch_fault_handling_assert(void *pc, void *lr, eMemfaultRebootReas
   prv_fault_handling_assert(pc, lr, reason);
 }
 
+// For Zephyr Xtensa, provide an assert handler and other utilities.
+// The Kconfig for the ESP32 family changed in v3.7.0. Support both Kconfigs
+  #if defined(__ZEPHYR__) && (defined(CONFIG_MEMFAULT_SOC_FAMILY_ESP32))
+    #include <hal/cpu_hal.h>
+    #include <zephyr/kernel.h>
+
+    #include "memfault-firmware-sdk/components/include/memfault/ports/zephyr/version.h"
+
+void memfault_platform_halt_if_debugging(void) {
+    // cpu_ll.h was deprecated in v3.7.0
+    #if MEMFAULT_ZEPHYR_VERSION_GT(3, 6)
+  if (esp_cpu_dbgr_is_attached()) {
+    MEMFAULT_BREAKPOINT();
+  }
+    #else
+  if (cpu_ll_is_debugger_attached()) {
+    MEMFAULT_BREAKPOINT();
+  }
+    #endif
+}
+
+bool memfault_arch_is_inside_isr(void) {
+  // Use the Zephyr-specific implementation.
+  return k_is_in_isr();
+}
+
+static void prv_fault_handling_assert_native(void *pc, void *lr, eMemfaultRebootReason reason) {
+  prv_fault_handling_assert(pc, lr, reason);
+
+    #if MEMFAULT_ASSERT_HALT_IF_DEBUGGING_ENABLED
+  memfault_platform_halt_if_debugging();
+    #endif
+
+  // dereference a null pointer to trigger fault. we might want to use abort()
+  // instead here
+  *(uint32_t *)0 = 0x77;
+
+  // We just trap'd into the fault handler logic so it should never be possible to get here but if
+  // we do the best thing that can be done is rebooting the system to recover it.
+  memfault_platform_reboot();
+}
+
+MEMFAULT_NO_OPT void memfault_fault_handling_assert_extra(void *pc, void *lr,
+                                                          sMemfaultAssertInfo *extra_info) {
+  prv_fault_handling_assert_native(pc, lr, extra_info->assert_reason);
+
+  MEMFAULT_UNREACHABLE;
+}
+
+MEMFAULT_NO_OPT void memfault_fault_handling_assert(void *pc, void *lr) {
+  prv_fault_handling_assert_native(pc, lr, kMfltRebootReason_Assert);
+
+  MEMFAULT_UNREACHABLE;
+}
+
+  #elif !defined(ESP_PLATFORM)
+    #error "Unsupported Xtensa platform. Please visit https://mflt.io/contact-support"
+  #endif  // !defined(ESP_PLATFORM) && defined(__ZEPHYR__)
+
+  #if MEMFAULT_COREDUMP_CPU_COUNT > 1
+    #if defined(__ZEPHYR__)
+      #error "Dual-core support not yet implemented for Zephyr Xtensa"
+    #else
+      #include "esp_cpu.h"
+
+    #endif
+
+static int prv_get_current_cpu_id(void) {
+  return esp_cpu_get_core_id();
+}
+  #endif  // MEMFAULT_COREDUMP_CPU_COUNT == 1
+
 void memfault_fault_handler(const sMfltRegState *regs, eMemfaultRebootReason reason) {
+  #if MEMFAULT_COREDUMP_CPU_COUNT == 1
+  const sMfltRegState *current_cpu_regs = regs;
+  #else
+  const int cpu_id = prv_get_current_cpu_id();
+  const sMfltRegState *current_cpu_regs = &regs[cpu_id];
+  #endif
   if (s_crash_reason == kMfltRebootReason_Unknown) {
     // skip LR saving here.
-    prv_fault_handling_assert((void *)regs->pc, (void *)0, reason);
+    prv_fault_handling_assert((void *)current_cpu_regs->pc, (void *)0, reason);
   }
 
   sMemfaultCoredumpSaveInfo save_info = {
     .regs = regs,
-    .regs_size = sizeof(*regs),
+    .regs_size = sizeof(*regs) * MEMFAULT_COREDUMP_CPU_COUNT,
     .trace_reason = s_crash_reason,
   };
 
@@ -58,7 +141,7 @@ void memfault_fault_handler(const sMfltRegState *regs, eMemfaultRebootReason rea
   // For the windowed ABI, a1 always holds the current "sp":
   //   https://github.com/espressif/esp-idf/blob/v4.0/components/freertos/readme_xtensa.txt#L421-L428
   const uint32_t windowed_abi_spill_size = 64;
-  const uint32_t sp_prior_to_exception = regs->a[1] - windowed_abi_spill_size;
+  const uint32_t sp_prior_to_exception = current_cpu_regs->a[1] - windowed_abi_spill_size;
 
   sCoredumpCrashInfo info = {
     .stack_address = (void *)sp_prior_to_exception,
@@ -75,7 +158,7 @@ void memfault_fault_handler(const sMfltRegState *regs, eMemfaultRebootReason rea
 
 size_t memfault_coredump_storage_compute_size_required(void) {
   // actual values don't matter since we are just computing the size
-  sMfltRegState core_regs = {0};
+  sMfltRegState core_regs[MEMFAULT_COREDUMP_CPU_COUNT] = { 0 };
   sMemfaultCoredumpSaveInfo save_info = {
     .regs = &core_regs,
     .regs_size = sizeof(core_regs),

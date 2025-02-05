@@ -1,6 +1,6 @@
 #
 # Copyright (c) Memfault, Inc.
-# See License.txt for details
+# See LICENSE for details
 #
 
 import dataclasses
@@ -78,7 +78,7 @@ class _Inferior:
         return []
 
     def read_memory(self, addr, size):
-        raise NotImplementedError()
+        raise NotImplementedError
 
 
 def inferiors():
@@ -94,7 +94,7 @@ def selected_thread():
 
 
 def execute(cmd: str, to_string=False) -> Any:
-    raise NotImplementedError()
+    raise NotImplementedError
 
 
 class GdbError(Exception):

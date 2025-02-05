@@ -3,7 +3,7 @@
 //! @file
 //!
 //! Copyright (c) Memfault, Inc.
-//! See License.txt for details
+//! See LICENSE for details
 //!
 //! @brief
 //! Wrappers for common macros & compiler specifics
@@ -21,18 +21,20 @@ extern "C" {
 #define MEMFAULT_PACKED_STRUCT struct MEMFAULT_PACKED
 #define MEMFAULT_NORETURN __attribute__((noreturn))
 #define MEMFAULT_NAKED_FUNC __attribute__((naked))
-#define MEMFAULT_UNREACHABLE while(1)
+#define MEMFAULT_UNREACHABLE while (1)
 #define MEMFAULT_NO_OPT
-
 
 #define MEMFAULT_PUT_IN_SECTION(x) __attribute__((section(x)))
 #define MEMFAULT_ALIGNED(x) __attribute__((aligned(x)))
 #define MEMFAULT_UNUSED __attribute__((unused))
 #define MEMFAULT_USED __attribute__((used))
 #define MEMFAULT_WEAK __attribute__((weak))
-#define MEMFAULT_PRINTF_LIKE_FUNC(a, b) __attribute__ ((format (__printf__, a, b)))
+#define MEMFAULT_PRINTF_LIKE_FUNC(a, b) __attribute__((format(__printf__, a, b)))
 
 #define MEMFAULT_CLZ(a) ((a == 0) ? 32UL : (uint32_t)__clz(a))
+
+//! Non-loaded symbols are specified by linker section, not compiler attribute
+#define MEMFAULT_NO_ALLOC
 
 // Compiler incorrectly thinks return value is missing for pure asm function
 // disable the check for them
@@ -40,15 +42,13 @@ extern "C" {
 #pragma diag_suppress 994
 
 #pragma FUNC_CANNOT_INLINE(memfault_get_pc)
-MEMFAULT_NAKED_FUNC
-static void * memfault_get_pc(void) {
+MEMFAULT_NAKED_FUNC static void *memfault_get_pc(void) {
   __asm(" mov r0, lr \n"
         " bx lr");
 }
 
 #pragma FUNC_CANNOT_INLINE(__get_PSP)
-MEMFAULT_NAKED_FUNC
-static uint32_t __get_PSP(void) {
+MEMFAULT_NAKED_FUNC static uint32_t __get_PSP(void) {
   __asm("   mrs r0, psp\n"
         "   bx lr");
 }
@@ -62,14 +62,14 @@ static uint32_t __get_PSP(void) {
 
 //! TI Compiler has an intrinsic __curpc() but it does not work when compiling against Cortex-M
 //! variants (i.e --silicon_version=7M4)
-#define MEMFAULT_GET_PC(_a)  _a = memfault_get_pc();
+#define MEMFAULT_GET_PC(_a) _a = memfault_get_pc();
 
-#define MEMFAULT_BREAKPOINT(val) __asm(" bkpt #"#val)
+#define MEMFAULT_BREAKPOINT(val) __asm(" bkpt #" #val)
 
 #if defined(__cplusplus)
-#  define MEMFAULT_STATIC_ASSERT(cond, msg) static_assert(cond, msg)
+  #define MEMFAULT_STATIC_ASSERT(cond, msg) static_assert(cond, msg)
 #else
-#  define MEMFAULT_STATIC_ASSERT(cond, msg) _Static_assert(cond, msg)
+  #define MEMFAULT_STATIC_ASSERT(cond, msg) _Static_assert(cond, msg)
 #endif
 
 #define MEMFAULT_DISABLE_WARNING(warning)

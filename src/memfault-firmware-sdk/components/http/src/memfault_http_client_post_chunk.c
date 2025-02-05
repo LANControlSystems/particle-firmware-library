@@ -1,16 +1,15 @@
 //! @file
 //!
 //! Copyright (c) Memfault, Inc.
-//! See License.txt for details
+//! See LICENSE for details
 //!
 //! @brief
 //! Implements conveninece API for posting a single chunk of Memfault data
 
-#include "memfault-firmware-sdk/components/include/memfault/http/http_client.h"
-
+#include "memfault-firmware-sdk/components/include/memfault/core/data_packetizer.h"
 #include "memfault-firmware-sdk/components/include/memfault/core/debug_log.h"
 #include "memfault-firmware-sdk/components/include/memfault/core/errors.h"
-#include "memfault-firmware-sdk/components/include/memfault/core/data_packetizer.h"
+#include "memfault-firmware-sdk/components/include/memfault/http/http_client.h"
 
 int memfault_http_client_post_chunk(void) {
   // A pre-flight check before we attempt to setup an HTTP client
@@ -28,7 +27,7 @@ int memfault_http_client_post_chunk(void) {
   }
 
   const int rv = memfault_http_client_post_data(http_client);
-  if ((eMfltPostDataStatus)rv !=  kMfltPostDataStatus_Success) {
+  if ((eMfltPostDataStatus)rv != kMfltPostDataStatus_Success) {
     MEMFAULT_LOG_ERROR("Failed to post chunk: rv=%d", rv);
   }
   const uint32_t timeout_ms = 30 * 1000;

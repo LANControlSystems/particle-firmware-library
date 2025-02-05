@@ -1,6 +1,6 @@
 #
 # Copyright (c) Memfault, Inc.
-# See License.txt for details
+# See LICENSE for details
 #
 
 import sys
@@ -42,7 +42,7 @@ class PrintChunkWatcher(StreamWatcher):
         if "<YOUR PROJECT KEY HERE>" in cmd:
             info = (
                 "\n\nInvoke CLI wrapper detected 'print_chunk' call but a valid\n"
-                + "'Memfault-Project-Key' was not specified. Please consult README for target\n"
+                "'Memfault-Project-Key' was not specified. Please consult README for target\n"
                 "platform for more info on how to set the value."
             )
             print(info)
@@ -51,8 +51,7 @@ class PrintChunkWatcher(StreamWatcher):
         # The command can be very long since it's an encoded dump of all the memory in the coredump
         # and some platforms aren't consistent with how they format newlines. Let's clean up the newlines
         # format used and save the command run in a temp file
-        try:
-            cmd_f = NamedTemporaryFile()
+        with NamedTemporaryFile() as cmd_f:
             for line in cmd.splitlines():
                 if len(line) == 0:
                     continue
@@ -69,7 +68,4 @@ class PrintChunkWatcher(StreamWatcher):
                 print("Result {} \n{}".format(result.exited, result.stdout))
             else:
                 print("Coredump upload skipped")
-        finally:
-            # Close the file so it gets deleted
-            cmd_f.close()
         return []

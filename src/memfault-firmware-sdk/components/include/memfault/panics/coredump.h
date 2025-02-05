@@ -3,7 +3,7 @@
 //! @file
 //!
 //! Copyright (c) Memfault, Inc.
-//! See License.txt for details
+//! See LICENSE for details
 //!
 //! @brief
 //! Infra for collecting backtraces which can be parsed by memfault!
@@ -13,7 +13,6 @@
 #include <stddef.h>
 
 #include "memfault-firmware-sdk/components/include/memfault/config.h"
-
 #include "memfault-firmware-sdk/components/include/memfault/core/reboot_reason_types.h"
 #include "memfault-firmware-sdk/components/include/memfault/panics/platform/coredump.h"
 
@@ -52,7 +51,8 @@ void memfault_fault_handler(const sMfltRegState *regs, eMemfaultRebootReason rea
 //! or print metadata about the fault which occurred
 //!
 //! @note By default this is a weak function which behaves as a no-op.
-extern void memfault_platform_fault_handler(const sMfltRegState *regs, eMemfaultRebootReason reason);
+extern void memfault_platform_fault_handler(const sMfltRegState *regs,
+                                            eMemfaultRebootReason reason);
 
 //! Checks that a coredump can fit in the platform storage allocated
 //!
@@ -68,6 +68,12 @@ bool memfault_coredump_storage_check_size(void);
 //! @return The space required to save the coredump or 0 on error
 //! (i.e no coredump regions defined, coredump storage of 0 size)
 size_t memfault_coredump_storage_compute_size_required(void);
+
+//! Returns the computed size of a coredump and the available storage capacity
+//!
+//! @param[out] total_size The size of the coredump in bytes
+//! @param[out] capacity The total capacity of the coredump storage in bytes
+void memfault_coredump_size_and_storage_capacity(size_t *total_size, size_t *capacity);
 
 //! Queries whether a valid coredump is present in the coredump storage.
 //!
@@ -99,7 +105,7 @@ bool memfault_coredump_storage_debug_test_begin(void);
 //! @note This function tests memfault_platform_coredump_storage_clear() which gets called
 //! while the system is running.
 //!
-//! @return if the entire storage test was succesful. On error, information is dumped
+//! @return if the entire storage test was successful. On error, information is dumped
 //!  to the CLI for further debug.
 bool memfault_coredump_storage_debug_test_finish(void);
 

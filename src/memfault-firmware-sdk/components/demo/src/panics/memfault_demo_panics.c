@@ -1,7 +1,7 @@
 //! @file
 //!
 //! Copyright (c) Memfault, Inc.
-//! See License.txt for details
+//! See LICENSE for details
 //!
 //! @brief
 //! CLI commands which require integration of the "panic" component.
@@ -22,36 +22,37 @@
 #include "memfault-firmware-sdk/components/include/memfault/panics/platform/coredump.h"
 #include "memfault_demo_cli_aux_private.h"
 
-MEMFAULT_NO_OPT
-static void do_some_work_base(char *argv[]) {
+// Allow opting out of the cassert demo. Some platforms may not have a libc
+// assert implementation.
+#if !defined(MEMFAULT_DEMO_DISABLE_CASSERT)
+  #include <assert.h>
+  #define MEMFAULT_DEMO_DISABLE_CASSERT 0
+#endif
+
+MEMFAULT_NO_OPT static void do_some_work_base(char *argv[]) {
   // An assert that is guaranteed to fail. We perform
   // the check against argv so that the compiler can't
   // perform any optimizations
   MEMFAULT_ASSERT((uint32_t)(uintptr_t)argv == 0xdeadbeef);
 }
 
-MEMFAULT_NO_OPT
-static void do_some_work1(char *argv[]) {
+MEMFAULT_NO_OPT static void do_some_work1(char *argv[]) {
   do_some_work_base(argv);
 }
 
-MEMFAULT_NO_OPT
-static void do_some_work2(char *argv[]) {
+MEMFAULT_NO_OPT static void do_some_work2(char *argv[]) {
   do_some_work1(argv);
 }
 
-MEMFAULT_NO_OPT
-static void do_some_work3(char *argv[]) {
+MEMFAULT_NO_OPT static void do_some_work3(char *argv[]) {
   do_some_work2(argv);
 }
 
-MEMFAULT_NO_OPT
-static void do_some_work4(char *argv[]) {
+MEMFAULT_NO_OPT static void do_some_work4(char *argv[]) {
   do_some_work3(argv);
 }
 
-MEMFAULT_NO_OPT
-static void do_some_work5(char *argv[]) {
+MEMFAULT_NO_OPT static void do_some_work5(char *argv[]) {
   do_some_work4(argv);
 }
 
@@ -112,6 +113,14 @@ int memfault_demo_cli_cmd_clear_core(MEMFAULT_UNUSED int argc, MEMFAULT_UNUSED c
   return 0;
 }
 
+int memfault_demo_cli_cmd_coredump_size(MEMFAULT_UNUSED int argc, MEMFAULT_UNUSED char *argv[]) {
+  size_t total_size = 0;
+  size_t capacity = 0;
+  memfault_coredump_size_and_storage_capacity(&total_size, &capacity);
+  MEMFAULT_LOG_INFO("Coredump size: %d, capacity: %d", (int)total_size, (int)capacity);
+  return 0;
+}
+
 int memfault_demo_cli_cmd_assert(int argc, char *argv[]) {
   // permit running with a user-provided "extra" value for testing that path
   if (argc > 1) {
@@ -119,6 +128,20 @@ int memfault_demo_cli_cmd_assert(int argc, char *argv[]) {
   } else {
     MEMFAULT_ASSERT(0);
   }
+
+  return -1;
+}
+
+int memfault_demo_cli_cmd_cassert(int argc, char *argv[]) {
+  (void)argc, (void)argv;
+
+#if MEMFAULT_DEMO_DISABLE_CASSERT
+  MEMFAULT_LOG_ERROR("C assert demo disabled");
+#else
+  assert(0);
+#endif
+
+  return -1;
 }
 
 #if MEMFAULT_COMPILER_ARM_CORTEX_M
@@ -139,7 +162,7 @@ int memfault_demo_cli_cmd_memmanage(MEMFAULT_UNUSED int argc, MEMFAULT_UNUSED ch
   //  System space, that is, for addresses 0xE0000000 and higher. System space is always marked as
   //  XN, Execute Never."
   //
-  // So we can trip a MemManage exception by simply attempting to execute any addresss >=
+  // So we can trip a MemManage exception by simply attempting to execute any address >=
   // 0xE000.0000
   void (*bad_func)(void) = (void (*)(void))0xEEEEDEAD;
   bad_func();
@@ -149,8 +172,13 @@ int memfault_demo_cli_cmd_memmanage(MEMFAULT_UNUSED int argc, MEMFAULT_UNUSED ch
 }
 
 int memfault_demo_cli_cmd_busfault(MEMFAULT_UNUSED int argc, MEMFAULT_UNUSED char *argv[]) {
-  void (*unaligned_func)(void) = (void (*)(void))0x50000001;
-  unaligned_func();
+  // Trigger a BusFault by attempting to load and jump to an address from the "RAM" (0x60000000 -
+  // 0x7FFFFFFF) region, described as: "Memory with write-back, write allocate cache attribute for
+  // L2/L3 cache support." in the ARMv7-M architecture reference manual. This is not guaranteed to
+  // trigger a BusFault, if the address is both loadable and executable, but on many devices it
+  // will.
+  void (*busfault_func)(void) = (void (*)(void))0x60000001;
+  busfault_func();
 
   // We should never get here -- platforms BusFault or HardFault handler should be tripped
   // with a precise error due to unaligned execution
@@ -166,18 +194,6 @@ int memfault_demo_cli_cmd_usagefault(MEMFAULT_UNUSED int argc, MEMFAULT_UNUSED c
   return -1;
 }
 
-int memfault_demo_cli_loadaddr(int argc, char *argv[]) {
-  if (argc < 2) {
-    MEMFAULT_LOG_ERROR("Usage: loadaddr <addr>");
-    return -1;
-  }
-  uint32_t addr = (uint32_t)strtoul(argv[1], NULL, 0);
-  uint32_t val = *(uint32_t *)addr;
-
-  MEMFAULT_LOG_INFO("Read 0x%08" PRIx32 " from 0x%08" PRIx32, val, (uint32_t)(uintptr_t)addr);
-  return 0;
-}
-
 #endif  // MEMFAULT_COMPILER_ARM_CORTEX_M
 
 #if MEMFAULT_COMPILER_ARM_V7_A_R
@@ -190,7 +206,7 @@ int memfault_demo_cli_cmd_dataabort(MEMFAULT_UNUSED int argc, MEMFAULT_UNUSED ch
 }
 
 int memfault_demo_cli_cmd_prefetchabort(MEMFAULT_UNUSED int argc, MEMFAULT_UNUSED char *argv[]) {
-  // We can trip a PrefetchAbort exception by simply attempting to execute any addresss >=
+  // We can trip a PrefetchAbort exception by simply attempting to execute any address >=
   // 0xE000.0000
   void (*bad_func)(void) = (void (*)(void))0xEEEEDEAD;
   bad_func();
@@ -200,3 +216,15 @@ int memfault_demo_cli_cmd_prefetchabort(MEMFAULT_UNUSED int argc, MEMFAULT_UNUSE
 }
 
 #endif  // MEMFAULT_COMPILER_ARM_V7_A_R
+
+int memfault_demo_cli_loadaddr(int argc, char *argv[]) {
+  if (argc < 2) {
+    MEMFAULT_LOG_ERROR("Usage: loadaddr <addr>");
+    return -1;
+  }
+  uint32_t addr = (uint32_t)strtoul(argv[1], NULL, 0);
+  uint32_t val = *(uint32_t *)addr;
+
+  MEMFAULT_LOG_INFO("Read 0x%08" PRIx32 " from 0x%08" PRIx32, val, (uint32_t)(uintptr_t)addr);
+  return 0;
+}

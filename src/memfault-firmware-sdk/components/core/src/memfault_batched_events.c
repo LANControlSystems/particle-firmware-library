@@ -1,18 +1,17 @@
 //! @file
 //!
 //! Copyright (c) Memfault, Inc.
-//! See License.txt for details
+//! See LICENSE for details
 //!
-
-#include "memfault-firmware-sdk/components/include/memfault/core/batched_events.h"
 
 #include <string.h>
 
+#include "memfault-firmware-sdk/components/include/memfault/core/batched_events.h"
 #include "memfault-firmware-sdk/components/include/memfault/core/sdk_assert.h"
 #include "memfault-firmware-sdk/components/include/memfault/util/cbor.h"
 
-void memfault_batched_events_build_header(
-    size_t num_events, sMemfaultBatchedEventsHeader *header_out) {
+void memfault_batched_events_build_header(size_t num_events,
+                                          sMemfaultBatchedEventsHeader *header_out) {
   MEMFAULT_SDK_ASSERT(header_out != NULL);
 
   if (num_events <= 1) {

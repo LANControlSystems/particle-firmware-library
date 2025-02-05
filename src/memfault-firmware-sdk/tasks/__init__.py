@@ -1,15 +1,16 @@
 #
 # Copyright (c) Memfault, Inc.
-# See License.txt for details
+# See LICENSE for details
 #
 
 import os
 import pathlib
 from shutil import which
+from typing import Any, cast
 
 from invoke import Collection, task
 
-from . import esp32, mbed, nrf, nrfconnect, wiced, zephyr
+from . import esp32, mbed, nrf, wiced, zephyr
 from .macos_ftdi import is_macos
 
 SDK_FW_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -17,7 +18,17 @@ SDK_FW_TASKS_DIR = pathlib.Path(os.path.join(SDK_FW_ROOT, "tasks"))
 SDK_FW_TESTS_ROOT = os.path.join(SDK_FW_ROOT, "tests")
 
 
-@task
+@task(
+    help={
+        "coverage": "Generate coverage report",
+        "rule": "Override default make rule to run, eg run 'clean' instead. Sets no_pytest=True",
+        "test_filter": "Test filter expression, eg '*metrics*'",
+        "test_dir": "Test directory (typically tests/)",
+        "extra_make_options": "Extra make options",
+        "verbose": "Verbose output",
+        "no_pytest": "Don't run pytest, instead run the Make-based test runner",
+    }
+)
 def fw_sdk_unit_test(
     ctx,
     coverage=False,
@@ -26,13 +37,13 @@ def fw_sdk_unit_test(
     test_dir=SDK_FW_TESTS_ROOT,
     extra_make_options="",
     verbose=False,
+    no_pytest=False,
 ):
     """Runs unit tests"""
 
-    if rule == "clean":
-        builddir = os.path.abspath(os.path.join(test_dir, "build"))
-        ctx.run(f"rm -rf {builddir}")
-        return
+    if rule:
+        # if a rule is specified, use Make-based test runner
+        no_pytest = True
 
     # Check if it's necessary to set the CPPUTEST_HOME variable; Macos (brew)
     # and conda environment requires this
@@ -74,7 +85,7 @@ def fw_sdk_unit_test(
     else:
         try:
             # Only available on Linux, but it's better
-            cpus = len(os.sched_getaffinity(0))
+            cpus = len(cast(Any, os).sched_getaffinity(0))
         except AttributeError:
             # Available on Mac
             cpus = int((os.cpu_count() or 4) / 2)
@@ -82,7 +93,7 @@ def fw_sdk_unit_test(
     make_options.extend(["-j", str(cpus)])
 
     # force colorized cpputest output
-    env_dict["CPPUTEST_EXE_FLAGS"] = "-c"
+    env_dict["CPPUTEST_EXE_FLAGS"] = "-c " + os.environ.get("CPPUTEST_EXE_FLAGS", "")
 
     # force compiler colored output; it detects as running in a non-tty but the
     # color output is useful
@@ -94,7 +105,7 @@ def fw_sdk_unit_test(
         # The main unit tests (in the 'tests' directory) use a test.py file to
         # drive the test run. The internal tests, in the 'internal/tests' directory,
         # use a Make-based test runner, so support both.
-        if os.path.exists(os.path.join(test_dir, "test.py")):
+        if os.path.exists(os.path.join(test_dir, "test.py")) and not no_pytest:
             # run the tests with pytest
             test_cmd = "pytest --numprocesses=auto {verbose} test.py".format(
                 verbose="-v" if verbose else ""
@@ -139,8 +150,6 @@ if (SDK_FW_TASKS_DIR / "modus.py").exists():
 
 @task(
     pre=[
-        nrf.nrf_clean,
-        nrf.nrf_build,
         esp32.esp32_app_clean,
         esp32.esp32_app_build,
         esp32.esp32_app_clean,
@@ -156,5 +165,4 @@ def build_all_demos(ctx):
 ci = Collection("~ci")
 ci.add_task(build_all_demos, name="build-all-demos")
 ci.add_task(zephyr.zephyr_project_ci_setup)
-ci.add_task(nrfconnect.nrfconnect_project_ci_setup)
 ns.add_collection(ci)

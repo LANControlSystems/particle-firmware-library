@@ -3,7 +3,7 @@
 //! @file
 //!
 //! Copyright (c) Memfault, Inc.
-//! See License.txt for details
+//! See LICENSE for details
 //!
 //! @brief
 //! A collection of HTTP utilities *solely* for interacting with the Memfault REST API including
@@ -21,6 +21,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "memfault-firmware-sdk/components/include/memfault/core/platform/device_info.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -29,7 +31,7 @@ extern "C" {
 //!
 //! For example, this would be where a user of the API would make a call to send() to push data
 //! over a socket
-typedef bool(*MfltHttpClientSendCb)(const void *data, size_t data_len, void *ctx);
+typedef bool (*MfltHttpClientSendCb)(const void *data, size_t data_len, void *ctx);
 
 //! Builds the HTTP 'Request-Line' and Headers for a POST to the Memfault Chunk Endpoint
 //!
@@ -42,8 +44,8 @@ typedef bool(*MfltHttpClientSendCb)(const void *data, size_t data_len, void *ctx
 //!  will be populated in the HTTP "Content-Length" header.
 //!
 //! @return true if the post was successful, false otherwise
-bool memfault_http_start_chunk_post(
-    MfltHttpClientSendCb callback, void *ctx, size_t content_body_length);
+bool memfault_http_start_chunk_post(MfltHttpClientSendCb callback, void *ctx,
+                                    size_t content_body_length);
 
 //! Builds the HTTP GET request to query the Memfault cloud to see if a new OTA Payload is available
 //!
@@ -73,8 +75,8 @@ bool memfault_http_get_latest_ota_payload_url(MfltHttpClientSendCb write_callbac
 //!   the request response body can be read where the Content-Length will contain the size
 //!   of the OTA payload and the message-body will be the OTA Payload that was uploaded via
 //!   the Memfault UI
-bool memfault_http_get_ota_payload(MfltHttpClientSendCb write_callback, void *ctx,
-                                   const char *url, size_t url_len);
+bool memfault_http_get_ota_payload(MfltHttpClientSendCb write_callback, void *ctx, const char *url,
+                                   size_t url_len);
 
 typedef enum MfltHttpParseStatus {
   kMfltHttpParseStatus_Ok = 0,
@@ -111,7 +113,6 @@ typedef struct {
   char line_buf[128];
 } sMemfaultHttpResponseContext;
 
-
 //! A *minimal* HTTP response parser for Memfault API calls
 //!
 //! @param ctx The context to be used while a parsing is in progress. It's
@@ -122,8 +123,8 @@ typedef struct {
 //! @return True if parsing completed or false if more data is needed for the response
 //!   Upon completion the 'parse_error' & 'http_status_code' fields can be checked
 //!   within the 'ctx' for the results
-bool memfault_http_parse_response(
-    sMemfaultHttpResponseContext *ctx, const void *data, size_t data_len);
+bool memfault_http_parse_response(sMemfaultHttpResponseContext *ctx, const void *data,
+                                  size_t data_len);
 
 //! Same as memfault_http_parse_response but only parses the response header
 //!
@@ -137,8 +138,8 @@ bool memfault_http_parse_response(
 //!                     | entity-header ) CRLF)
 //!                    CRLF
 //!                    [ message-body ]          ; **NOT Consumed**
-bool memfault_http_parse_response_header(
-    sMemfaultHttpResponseContext *ctx, const void *data, size_t data_len);
+bool memfault_http_parse_response_header(sMemfaultHttpResponseContext *ctx, const void *data,
+                                         size_t data_len);
 
 typedef enum {
   kMemfaultUriScheme_Unrecognized = 0,
@@ -199,12 +200,19 @@ bool memfault_http_needs_escape(const char *str, size_t len);
 //! URL encode a string. See https://www.ietf.org/rfc/rfc3986.html#section-2.1
 //!
 //! @param inbuf String to encode; must be null-terminated
-//! @param[out] outbuf Endcoded string. Should be sized to fit possible encoding
+//! @param[out] outbuf Encoded string. Should be sized to fit possible encoding
 //! overhead, eg 3 * strlen(inbuf)
 //! @param outbuf_len Size of outbuf
 //!
 //! @return 0 if encoding was successful, non zero otherwise
 int memfault_http_urlencode(const char *inbuf, size_t inbuf_len, char *outbuf, size_t outbuf_len);
+
+//! Read the device information for building an HTTP request. This uses the
+//! callback installed into g_mflt_http_client_config.get_device_info if
+//! available, or falls back onto the default platform implementation otherwise.
+//!
+//! @param[out] info The device information to populate
+void memfault_http_get_device_info(sMemfaultDeviceInfo *info);
 
 #ifdef __cplusplus
 }

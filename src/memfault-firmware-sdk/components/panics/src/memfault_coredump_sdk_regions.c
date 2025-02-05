@@ -1,7 +1,7 @@
 //! @file
 //!
 //! Copyright (c) Memfault, Inc.
-//! See License.txt for details
+//! See LICENSE for details
 //!
 //! Enables collection of memory regions used by the Memfault SDK based on compile time defines.
 //!
@@ -46,7 +46,7 @@ const sMfltCoredumpRegion *memfault_coredump_get_sdk_regions(size_t *num_regions
   size_t total_regions = 0;
 
 #if MEMFAULT_COREDUMP_COLLECT_LOG_REGIONS
-  sMemfaultLogRegions regions = {0};
+  sMemfaultLogRegions regions = { 0 };
   if (memfault_log_get_regions(&regions)) {
     for (size_t i = 0; i < MEMFAULT_LOG_NUM_RAM_REGIONS; i++) {
       sMemfaultLogMemoryRegion *log_region = &regions.region[i];

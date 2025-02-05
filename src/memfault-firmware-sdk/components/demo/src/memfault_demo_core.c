@@ -1,12 +1,10 @@
 //! @file
 //!
 //! Copyright (c) Memfault, Inc.
-//! See License.txt for details
+//! See LICENSE for details
 //!
 //! @brief
 //! CLI commands used by demo applications to exercise the Memfault SDK
-
-#include "memfault-firmware-sdk/components/include/memfault/demo/cli.h"
 
 #include <stdlib.h>
 
@@ -17,6 +15,7 @@
 #include "memfault-firmware-sdk/components/include/memfault/core/platform/device_info.h"
 #include "memfault-firmware-sdk/components/include/memfault/core/reboot_reason_types.h"
 #include "memfault-firmware-sdk/components/include/memfault/core/reboot_tracking.h"
+#include "memfault-firmware-sdk/components/include/memfault/demo/cli.h"
 
 int memfault_demo_cli_cmd_get_device_info(MEMFAULT_UNUSED int argc, MEMFAULT_UNUSED char *argv[]) {
   memfault_device_info_dump();

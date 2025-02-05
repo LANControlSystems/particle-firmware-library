@@ -1,6 +1,6 @@
 #
 # Copyright (c) Memfault, Inc.
-# See License.txt for details
+# See LICENSE for details
 #
 
 import filecmp
@@ -26,12 +26,12 @@ from mflt_build_id import (  # noqa: E402 # isort:skip
 @pytest.fixture()
 def copy_file(tmp_path):
     """Copies a file into the tests tmp path"""
-    idx = [0]
+    idx = 0
 
     def _copy_file(src):
-        # NB: Python 2.7 does not support `nonlocal`
-        tmp_name = str(tmp_path / "file_{}.bin".format(idx[0]))
-        idx[0] += 1
+        nonlocal idx
+        tmp_name = str(tmp_path / f"file_{idx}.bin")
+        idx += 1
         shutil.copy2(src, tmp_name)
         return tmp_name
 
@@ -318,7 +318,7 @@ def test_crc_build_id_in_bss():
         b = BuildIdInspectorAndPatcher(elf_fixture_file)
         with pytest.raises(
             Exception,
-            match="CRC symbol 'g_example_crc32_bss_build_id' in invalid Section 'SectionType.BSS'",
+            match=r"CRC symbol 'g_example_crc32_bss_build_id' in invalid Section 'SectionType.BSS'",
         ):
             b.check_or_update_crc_build_id("g_example_crc32_bss_build_id")
 

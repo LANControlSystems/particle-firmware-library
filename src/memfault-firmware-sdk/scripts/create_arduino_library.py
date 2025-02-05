@@ -1,9 +1,10 @@
+#!/usr/bin/env python
+
 #
 # Copyright (c) Memfault, Inc.
-# See License.txt for details
+# See LICENSE for details
 #
 
-#!/usr/bin/env python
 
 """
 A script which transforms the memfault-firmware-sdk into a project suitable for inclusion as an arduino library
@@ -56,8 +57,8 @@ def download_memfault_library(working_dir: str, tag: str):
 
 def extract_memfault_library(working_dir: str, release_artifact_filepath: str):
     logging.debug("Extracting %s", release_artifact_filepath)
-    download = tarfile.open(release_artifact_filepath)
-    download.extractall(working_dir)
+    download = tarfile.open(release_artifact_filepath)  # noqa: SIM115
+    download.extractall(working_dir)  # noqa: S202
     root_folder_name = download.getnames()[0]
     download.close()
     extract_dir = os.path.realpath(os.path.join(working_dir, root_folder_name))
@@ -69,7 +70,7 @@ def arduinoify_memfault_sdk(sdk_root_dir: str, result_dir: str, port: str):
     if not os.path.exists(sdk_root_dir):
         raise FileNotFoundError(f"Memfault SDK directory does not exist: {sdk_root_dir}")
 
-    # We will be re-packag'ing the SDK into a library with the following structure:
+    # We will be re-package'ing the SDK into a library with the following structure:
     #
     # |-- LICENSE
     # |-- README.md (sourced from port_dir if provided)
@@ -114,6 +115,10 @@ def arduinoify_memfault_sdk(sdk_root_dir: str, result_dir: str, port: str):
 
     files_to_patch = glob.glob(f"{sdk_root_dir}/**/*.c", recursive=True)
     files_to_patch.extend(glob.glob(f"{sdk_root_dir}/**/*.h", recursive=True))
+    # also the memfault/metrics/heartbeat_config.def file
+    files_to_patch.extend(
+        glob.glob(f"{sdk_root_dir}/**/include/memfault/metrics/heartbeat_config.def")
+    )
 
     logging.debug("Patching headers ...")
 
@@ -131,9 +136,11 @@ def arduinoify_memfault_sdk(sdk_root_dir: str, result_dir: str, port: str):
             w.write(contents)
 
     # Up level a few files to the root of the repo
-    shutil.move(os.path.join(sdk_root_dir, "License.txt"), os.path.join(library_dir, "LICENSE.txt"))
+    shutil.move(os.path.join(sdk_root_dir, "LICENSE"), os.path.join(library_dir, "LICENSE.txt"))
     shutil.move(os.path.join(sdk_root_dir, "VERSION"), os.path.join(library_dir, "VERSION"))
-    shutil.move(os.path.join(sdk_root_dir, "CHANGES.md"), os.path.join(library_dir, "CHANGES.md"))
+    shutil.move(
+        os.path.join(sdk_root_dir, "CHANGELOG.md"), os.path.join(library_dir, "CHANGELOG.md")
+    )
     shutil.move(sdk_root_dir, os.path.join(library_dir, "src", "memfault-firmware-sdk"))
 
     logging.debug("Patched SDK Generation Success! %s", library_dir)
@@ -208,6 +215,7 @@ $ python create_arduino_library.py --tag 0.28.2 --output build
         release_artifact_filepath = args.memfault_sdk
         extraction_working_dir = os.path.join(BUILD_DIRECTORY, "memfault-firmware-sdk")
 
+    assert release_artifact_filepath
     release_artifact_dir = extract_memfault_library(
         extraction_working_dir, release_artifact_filepath
     )

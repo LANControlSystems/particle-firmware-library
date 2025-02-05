@@ -3,7 +3,7 @@
 //! @file
 //!
 //! Copyright (c) Memfault, Inc.
-//! See License.txt for details
+//! See LICENSE for details
 //!
 //! @brief
 //!
@@ -11,7 +11,7 @@
 //! infrastructure to capture events or errors that transpired leading up to an issue.
 //! See https://mflt.io/logging for detailed integration steps.
 //!
-//! @note These utilities are already integrated into memfault/core/debug_log.h module. If your
+//! @note These utilities are already integrated into memfault-firmware-sdk/components/include/memfault/core/debug_log.h module. If your
 //! project does not have a logging subsystem, see the notes in that header about how to leverage
 //! the debug_log.h module for that!
 //!
@@ -64,7 +64,9 @@ bool memfault_log_boot(void *buffer, size_t buf_len);
 //! By default, any logs >= kMemfaultPlatformLogLevel_Info can be saved
 void memfault_log_set_min_save_level(eMemfaultPlatformLogLevel min_log_level);
 
-//! Macro which can be called from a platforms pre-existing logging macro.
+//! The MEMFAULT_LOG_SAVE macro backs the built-in SDK MEMFAULT_LOG_x logging
+//! macros, but can also be called from a platforms pre-existing logging
+//! macro.
 //!
 //! For example, if your platform already has something like this
 //!
@@ -79,23 +81,24 @@ void memfault_log_set_min_save_level(eMemfaultPlatformLogLevel min_log_level);
 //!    MEMFAULT_LOG_SAVE(kMemfaultPlatformLogLevel_Error, __VA_ARGS__);
 //!    your_platform_log_error(__VA_ARGS__)
 //! } while (0)
-#define MEMFAULT_LOG_SAVE(_level, ...) memfault_log_save(_level, __VA_ARGS__)
+//!
+//! The macro will save the log data in the normal or compact form depending on
+//! SDK configuration.
 
 #if MEMFAULT_COMPACT_LOG_ENABLE
 
-//! Same as MEMFAULT_LOG_SAVE except logs use Memfault's "compact" log strategy which offloads
-//! formatting to the Memfault cloud to reduce on device codespace and cpu consumption. See
-//! https://mflt.io/compact-logs for more details.
-#define MEMFAULT_COMPACT_LOG_SAVE(level, format, ...)                   \
-  do {                                                                  \
-    MEMFAULT_LOGGING_RUN_COMPILE_TIME_CHECKS(format, ## __VA_ARGS__);   \
-    MEMFAULT_LOG_FMT_ELF_SECTION_ENTRY(format, ## __VA_ARGS__);         \
-    memfault_compact_log_save(level,                                    \
-                              MEMFAULT_LOG_FMT_ELF_SECTION_ENTRY_PTR,   \
-                              MFLT_GET_COMPRESSED_LOG_FMT(__VA_ARGS__), \
-                              ## __VA_ARGS__);                          \
-  } while (0)
+  //! Same as MEMFAULT_LOG_SAVE except logs use Memfault's "compact" log strategy which offloads
+  //! formatting to the Memfault cloud to reduce on device codespace and cpu consumption. See
+  //! https://mflt.io/compact-logs for more details.
+  #define MEMFAULT_COMPACT_LOG_SAVE(level, format, ...)                                   \
+    do {                                                                                  \
+      MEMFAULT_LOGGING_RUN_COMPILE_TIME_CHECKS(format, ##__VA_ARGS__);                    \
+      MEMFAULT_LOG_FMT_ELF_SECTION_ENTRY(format, ##__VA_ARGS__);                          \
+      memfault_compact_log_save(level, MEMFAULT_LOG_FMT_ELF_SECTION_ENTRY_PTR,            \
+                                MFLT_GET_COMPRESSED_LOG_FMT(__VA_ARGS__), ##__VA_ARGS__); \
+    } while (0)
 
+  #define MEMFAULT_LOG_SAVE MEMFAULT_COMPACT_LOG_SAVE
 
 //! Serializes the provided compact log and saves it to backing storage
 //!
@@ -103,6 +106,8 @@ void memfault_log_set_min_save_level(eMemfaultPlatformLogLevel min_log_level);
 void memfault_compact_log_save(eMemfaultPlatformLogLevel level, uint32_t log_id,
                                uint32_t compressed_fmt, ...);
 
+#else  // !MEMFAULT_COMPACT_LOG_ENABLE
+  #define MEMFAULT_LOG_SAVE(_level, ...) memfault_log_save(_level, __VA_ARGS__)
 #endif /* MEMFAULT_COMPACT_LOG_ENABLE */
 
 //! Function which can be called to save a log after it has been formatted
@@ -188,8 +193,9 @@ void memfault_log_export_logs(void);
 //! Called as part of memfault_log_export() for every time a log message needs to be exported.
 //!
 //! @note This is a weak function that by default calls `memfault_platform_log_raw`. It can be
-//! overriden to change the formatting of the output, as well as where it is stored.
-extern void memfault_log_export_msg(eMemfaultPlatformLogLevel level, const char *msg, size_t msg_len);
+//! overridden to change the formatting of the output, as well as where it is stored.
+extern void memfault_log_export_msg(eMemfaultPlatformLogLevel level, const char *msg,
+                                    size_t msg_len);
 
 //! Invoked every time a new log has been saved
 //!
@@ -218,6 +224,18 @@ void memfault_vlog_save(eMemfaultPlatformLogLevel level, const char *fmt, va_lis
 //! expunged again upon writing new logs that require the space.
 //! @note This function must not be called from an ISR context.
 void memfault_log_trigger_collection(void);
+
+//! Check if log component has booted
+//!
+//! @returns true if log component has booted or false if not
+bool memfault_log_booted(void);
+
+//! Return the count of lines that were not recorded into the logging buffer due
+//! to lack of space. Monotonically incrementing from boot.
+uint32_t memfault_log_get_dropped_count(void);
+
+//! Return the count of lines that have been written to the logging buffer.
+uint32_t memfault_log_get_recorded_count(void);
 
 #ifdef __cplusplus
 }

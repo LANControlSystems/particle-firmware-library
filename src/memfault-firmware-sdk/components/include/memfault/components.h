@@ -3,19 +3,15 @@
 //! @file
 //!
 //! Copyright (c) Memfault, Inc.
-//! See License.txt for details
+//! See LICENSE for details
 //!
 //! A convenience header to pick up all the possible Memfault SDK APIs available
 //!
 //! For example, in a platform port file, a user of the SDK can pick up this single header and
 //! start implementing dependencies without needed any other memfault component headers:
 //!
-//!  #include memfault/components.h
+//!  #include memfault-firmware-sdk/components/include/memfault/components.h
 //!
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 #include "memfault-firmware-sdk/components/include/memfault/config.h"
 #include "memfault-firmware-sdk/components/include/memfault/core/arch.h"
@@ -43,6 +39,7 @@ extern "C" {
 #include "memfault-firmware-sdk/components/include/memfault/core/reboot_reason_types.h"
 #include "memfault-firmware-sdk/components/include/memfault/core/reboot_tracking.h"
 #include "memfault-firmware-sdk/components/include/memfault/core/sdk_assert.h"
+#include "memfault-firmware-sdk/components/include/memfault/core/self_test.h"
 #include "memfault-firmware-sdk/components/include/memfault/core/task_watchdog.h"
 #include "memfault-firmware-sdk/components/include/memfault/core/trace_event.h"
 #include "memfault-firmware-sdk/components/include/memfault/demo/cli.h"
@@ -53,9 +50,13 @@ extern "C" {
 #include "memfault-firmware-sdk/components/include/memfault/http/platform/http_client.h"
 #include "memfault-firmware-sdk/components/include/memfault/http/root_certs.h"
 #include "memfault-firmware-sdk/components/include/memfault/http/utils.h"
+#include "memfault-firmware-sdk/components/include/memfault/metrics/battery.h"
+#include "memfault-firmware-sdk/components/include/memfault/metrics/connectivity.h"
 #include "memfault-firmware-sdk/components/include/memfault/metrics/metrics.h"
+#include "memfault-firmware-sdk/components/include/memfault/metrics/platform/battery.h"
 #include "memfault-firmware-sdk/components/include/memfault/metrics/platform/overrides.h"
 #include "memfault-firmware-sdk/components/include/memfault/metrics/platform/timer.h"
+#include "memfault-firmware-sdk/components/include/memfault/metrics/reliability.h"
 #include "memfault-firmware-sdk/components/include/memfault/metrics/utils.h"
 #include "memfault-firmware-sdk/components/include/memfault/panics/assert.h"
 #include "memfault-firmware-sdk/components/include/memfault/panics/coredump.h"
@@ -68,7 +69,4 @@ extern "C" {
 #include "memfault-firmware-sdk/components/include/memfault/util/crc16_ccitt.h"
 #include "memfault-firmware-sdk/components/include/memfault/util/rle.h"
 #include "memfault-firmware-sdk/components/include/memfault/util/varint.h"
-
-#ifdef __cplusplus
-}
-#endif
+#include "memfault-firmware-sdk/components/include/memfault/version.h"

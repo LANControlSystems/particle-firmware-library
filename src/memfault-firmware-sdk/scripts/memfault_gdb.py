@@ -54,7 +54,7 @@ except ImportError:
     error_str = """
     This script can only be run within gdb!
     """
-    raise ImportError(error_str)  # noqa: B904  (no raise-from in Python 2.7)
+    raise ImportError(error_str)  # (no raise-from in Python 2.7)
 
 
 # Note: not using `requests` but using the built-in http.client instead, so
@@ -74,7 +74,7 @@ MEMFAULT_DEFAULT_CHUNKS_BASE_URI = "https://chunks.memfault.com"
 MEMFAULT_DEFAULT_API_BASE_URI = "https://api.memfault.com"
 
 
-try:
+try:  # noqa: SIM105
     # In Python 3.x, raw_input was renamed to input
     # NOTE: Python 2.x also had an input() function which eval'd the input...!
     input = raw_input
@@ -286,7 +286,7 @@ class XtensaCoredumpArch(CoredumpArch):
 
         # Memory map:
         # https://github.com/espressif/esp-idf/blob/v3.3.1/components/soc/esp32/include/soc/soc.h#L286-L304
-        regions = (
+        return (
             # SOC_DRAM
             (0x3FFAE000, 0x52000),
             # SOC_RTC_DATA
@@ -294,7 +294,6 @@ class XtensaCoredumpArch(CoredumpArch):
             # SOC_RTC_DRAM
             (0x3FF80000, 0x2000),
         )
-        return regions
 
     def _read_registers(self, core, gdb_thread, analytics_props):
         # NOTE: The only way I could figure out to read raw registers for CPU1 was
@@ -323,7 +322,7 @@ class XtensaCoredumpArch(CoredumpArch):
 
         # Scoop up all register values
         vals = []
-        for i in range(0, len(xtensa_gdb_idx_regs)):
+        for i in range(len(xtensa_gdb_idx_regs)):
             start_idx = i * 8
             hexstr = registers[start_idx : start_idx + 8]
             vals.append(bytearray.fromhex(hexstr))
@@ -345,7 +344,7 @@ class XtensaCoredumpArch(CoredumpArch):
     def get_current_registers(self, gdb_thread, analytics_props):
         result = []
         try:
-            for core_id in range(0, self.num_cores):
+            for core_id in range(self.num_cores):
                 result.append(self._read_registers(core_id, gdb_thread, analytics_props))
         except Exception:
             analytics_props["core_reg_collection_error"] = {"traceback": traceback.format_exc()}
@@ -433,7 +432,7 @@ class ArmCortexMCoredumpArch(CoredumpArch):
         result += mpu_ctrl_data
 
         num_regions = (mpu_type >> 8) & 0xFF
-        for i in range(0, num_regions):
+        for i in range(num_regions):
             _write_register(mpu_rnr, i)
             _, data = _read_register(mpu_rbar)
             result += data
@@ -494,7 +493,12 @@ class ArmCortexMCoredumpArch(CoredumpArch):
 
         def _is_ram(base_addr):
             # See Table B3-1 ARMv7-M address map in "ARMv7-M Architecture Reference Manual"
-            return (base_addr & 0xF0000000) in (0x20000000, 0x30000000, 0x60000000, 0x80000000)
+            return (base_addr & 0xF0000000) in (
+                0x20000000,
+                0x30000000,
+                0x60000000,
+                0x80000000,
+            )
 
         capture_size = 1024 * 1024  # Capture up to 1MB per section
         for section in capturable_elf_sections:
@@ -529,7 +533,7 @@ class ArmCortexMCoredumpArch(CoredumpArch):
         return (lookup_registers_from_list(self, info_reg_all_list, analytics_props),)
 
 
-# FIXME: De-duplicate with code from rtos_register_stacking.py
+# TODO: De-duplicate with code from rtos_register_stacking.py
 def concat_registers_dict_to_bytes(arch, regs):
     result = b""
     for reg_name in arch.register_collection_list:
@@ -627,7 +631,12 @@ def lookup_registers_from_list(arch, info_reg_all_list, analytics_props):
 
     for lookup_reg_name, result_reg_name in alt_reg_names:
         _try_read_register(
-            arch, frame, lookup_reg_name, register_list, analytics_props, result_reg_name
+            arch,
+            frame,
+            lookup_reg_name,
+            register_list,
+            analytics_props,
+            result_reg_name,
         )
 
     # if we can't patch the registers, we'll just fallback to the active state
@@ -639,7 +648,7 @@ def lookup_registers_from_list(arch, info_reg_all_list, analytics_props):
     return register_list
 
 
-# FIXME: De-duplicate with code from core_convert.py
+# TODO: De-duplicate with code from core_convert.py
 MEMFAULT_COREDUMP_MAGIC = 0x45524F43
 MEMFAULT_COREDUMP_VERSION = 1
 MEMFAULT_COREDUMP_FILE_HEADER_FMT = "<III"  # magic, version, file length (incl. file header)
@@ -687,7 +696,7 @@ class MemfaultCoredumpWriter(object):
             )
         )
 
-        def _write_block(type, payload, address=0):
+        def _write_block(type, payload, address=0):  # noqa: A002
             write(pack(MEMFAULT_COREDUMP_BLOCK_HEADER_FMT, type, address, len(payload)))
             write(payload)
 
@@ -699,11 +708,13 @@ class MemfaultCoredumpWriter(object):
 
         _write_block(MemfaultCoredumpBlockType.DEVICE_SERIAL, self.device_serial.encode("utf8"))
         _write_block(
-            MemfaultCoredumpBlockType.SOFTWARE_VERSION, self.software_version.encode("utf8")
+            MemfaultCoredumpBlockType.SOFTWARE_VERSION,
+            self.software_version.encode("utf8"),
         )
         _write_block(MemfaultCoredumpBlockType.SOFTWARE_TYPE, self.software_type.encode("utf8"))
         _write_block(
-            MemfaultCoredumpBlockType.HARDWARE_REVISION, self.hardware_revision.encode("utf8")
+            MemfaultCoredumpBlockType.HARDWARE_REVISION,
+            self.hardware_revision.encode("utf8"),
         )
         _write_block(MemfaultCoredumpBlockType.MACHINE_TYPE, pack("<I", self.arch.MACHINE_TYPE))
         _write_block(MemfaultCoredumpBlockType.TRACE_REASON, pack("<I", self.trace_reason))
@@ -726,7 +737,7 @@ class MemfaultCoredumpWriter(object):
         def _counting_write(data):
             # nonlocal total_size  # Not python 2.x compatible :(
             # total_size += len(data)
-            total_size["size"] = total_size["size"] + len(data)
+            total_size["size"] += len(data)
 
         self._write(_counting_write)
 
@@ -734,7 +745,7 @@ class MemfaultCoredumpWriter(object):
         self._write(out_f.write, total_size["size"])
 
 
-class Section(object):
+class Section(object):  # noqa: PLW1641
     def __init__(self, addr, size, name, read_only=True):
         self.addr = addr
         self.size = size
@@ -808,7 +819,7 @@ def _create_http_connection(base_uri):
     else:
         conn_class = HTTPSConnection
         default_port = 443
-    port = url.port if url.port else default_port
+    port = url.port or default_port
     return conn_class(url.hostname, port=port)
 
 
@@ -861,15 +872,25 @@ def _http_api(config, method, path, headers=None, body=None, should_raise=False)
 
 
 def http_post_coredump(coredump_file, project_key, ingress_uri):
-    headers = {"Content-Type": "application/octet-stream", "Memfault-Project-Key": project_key}
+    headers = {
+        "Content-Type": "application/octet-stream",
+        "Memfault-Project-Key": project_key,
+    }
     status, reason, _ = _http(
-        "POST", ingress_uri, "/api/v0/upload/coredump", headers=headers, body=coredump_file
+        "POST",
+        ingress_uri,
+        "/api/v0/upload/coredump",
+        headers=headers,
+        body=coredump_file,
     )
     return status, reason
 
 
 def http_post_chunk(chunk_data_file, project_key, chunks_uri, device_serial):
-    headers = {"Content-Type": "application/octet-stream", "Memfault-Project-Key": project_key}
+    headers = {
+        "Content-Type": "application/octet-stream",
+        "Memfault-Project-Key": project_key,
+    }
     status, reason, _ = _http(
         "POST",
         chunks_uri,
@@ -928,15 +949,13 @@ def http_upload_symbol_file(config, artifact_readable, software_type, software_v
             project=config.project,
         ),
         headers={"Content-Type": "application/json", "Accept": "application/json"},
-        body=dumps(
-            {
-                "file": {"token": token, "name": "symbols.elf"},
-                "software_version": {
-                    "version": software_version,
-                    "software_type": software_type,
-                },
-            }
-        ),
+        body=dumps({
+            "file": {"token": token, "name": "symbols.elf"},
+            "software_version": {
+                "version": software_version,
+                "software_type": software_type,
+            },
+        }),
         should_raise=True,
     )
 
@@ -949,7 +968,7 @@ def http_get_software_version(config, software_type, software_version):
         software_version=software_version,
     )
 
-    status, reason, body = _http_api(config, "GET", software_version_url)
+    status, _, body = _http_api(config, "GET", software_version_url)
     if status < 200 or status >= 300:
         return None
     return body["data"]
@@ -1003,7 +1022,7 @@ def upload_symbols_if_needed(config, elf_fn, software_type, software_version):
                 print("Failed to upload symbols: {}".format(e))
 
 
-# FIXME: Duped from mflt.tools/gdb_memfault.py
+# TODO: Duped from mflt.tools/gdb_memfault.py
 class MemfaultGdbArgumentParseError(Exception):
     pass
 
@@ -1013,7 +1032,7 @@ class MemfaultGdbArgumentParser(argparse.ArgumentParser):
         if message:
             self._print_message(message)
         # Don't call sys.exit()
-        raise MemfaultGdbArgumentParseError()
+        raise MemfaultGdbArgumentParseError
 
 
 def populate_config_args_and_parse_args(parser, unicode_args, config):
@@ -1034,7 +1053,10 @@ def populate_config_args_and_parse_args(parser, unicode_args, config):
         default=MEMFAULT_CONFIG.organization,
     )
     parser.add_argument(
-        "--project", "-p", help="Default project (slug) to use", default=MEMFAULT_CONFIG.project
+        "--project",
+        "-p",
+        help="Default project (slug) to use",
+        default=MEMFAULT_CONFIG.project,
     )
     parser.add_argument(
         "--ingress-uri",
@@ -1060,7 +1082,7 @@ def populate_config_args_and_parse_args(parser, unicode_args, config):
     if parsed_args.email == MEMFAULT_CONFIG.email:
         config.user_id = MEMFAULT_CONFIG.user_id
     else:
-        status, reason, json_body = http_get_auth_me(config.api_uri, config.email, config.password)
+        _, _, json_body = http_get_auth_me(config.api_uri, config.email, config.password)
         config.user_id = json_body["id"]
 
     return parsed_args
@@ -1110,7 +1132,7 @@ def settings_load():
 
 
 def settings_save(settings):
-    try:
+    try:  # noqa: SIM105
         # exist_ok does not exist yet in Python 2.7!
         os.makedirs(os.path.dirname(MEMFAULT_CONFIG.json_path))
     except OSError:
@@ -1192,11 +1214,9 @@ class GdbMemfaultPostChunkBreakpoint(gdb.Breakpoint):
     def stop(self):
         params = self._determine_param_names()
         if params is None:
-            print(
-                """ERROR: Could not determine names of parameters holding chunk buffer and size
+            print("""ERROR: Could not determine names of parameters holding chunk buffer and size
                 Disabling Memfault GDB Chunk Handler & Halting
-                """
-            )
+                """)
             self.enabled = False
             return True
 
@@ -1261,14 +1281,12 @@ class MemfaultPostChunk(MemfaultGdbCommand):
                 """Chunk handler function '{}' does not exist.
 
             A custom handler location can be specified with the --chunk-handler-func argument.
-            """.format(
-                    chunk_handler_func
-                )
+            """.format(chunk_handler_func)
             )
             return
 
         # It's possible to have multiple function declarations when the default weak symbol in
-        # components/demo is overriden. This is because the gnu linker does not edit the DWARF DIE
+        # components/demo is overridden. This is because the gnu linker does not edit the DWARF DIE
         # generated by a compilation unit (https://sourceware.org/bugzilla/show_bug.cgi?id=25561)
         # To workaround this limitation, we'll use the <file>:<function> syntax to ensure the
         # breakpoint is set for the correct function.
@@ -1293,7 +1311,7 @@ class MemfaultPostChunk(MemfaultGdbCommand):
         # NB: Wrapped in a try catch because older versions of gdb.breakpoints() eventually return None
         # instead of raising StopIteration
         try:
-            for breakpoint in gdb.breakpoints():
+            for breakpoint in gdb.breakpoints():  # noqa: A001
                 if chunk_handler_func in breakpoint.location:
                     print("Deleting breakpoint for '{}'".format(chunk_handler_func))
                     breakpoint.delete()
@@ -1312,7 +1330,11 @@ class MemfaultPostChunk(MemfaultGdbCommand):
     def parse_args(self, unicode_args):
         parser = MemfaultGdbArgumentParser(description=MemfaultPostChunk.__doc__)
         parser.add_argument(
-            "--project-key", "-pk", help="Memfault Project Key", required=True, default=None
+            "--project-key",
+            "-pk",
+            help="Memfault Project Key",
+            required=True,
+            default=None,
         )
         parser.add_argument(
             "--chunk-handler-func",
@@ -1352,7 +1374,7 @@ class MemfaultCoredump(MemfaultGdbCommand):
     """Captures a coredump from the target and uploads it to Memfault for analysis"""
 
     ALPHANUM_SLUG_DOTS_COLON_REGEX = r"^[-a-zA-Z0-9_\.\+:]+$"
-    ALPHANUM_SLUG_DOTS_COLON_SPACES_PARENS_SLASH_REGEX = r"^[-a-zA-Z0-9_\.\+: \(\)\[\]/]+$"
+    ALPHANUM_SLUG_DOTS_COLON_SPACES_PARENS_SLASH_COMMA_REGEX = r"^[-a-zA-Z0-9_\.\+: \(\)\[\]/,]+$"
     DEFAULT_CORE_DUMP_HARDWARE_REVISION = "DEVBOARD"
     DEFAULT_CORE_DUMP_SERIAL_NUMBER = "DEMOSERIALNUMBER"
     DEFAULT_CORE_DUMP_SOFTWARE_TYPE = "main"
@@ -1367,8 +1389,7 @@ class MemfaultCoredump(MemfaultGdbCommand):
             analytics_props["permission"] = "accepted-stored"
             return True
 
-        y = MEMFAULT_CONFIG.prompt(
-            """
+        y = MEMFAULT_CONFIG.prompt("""
 You are about to capture a coredump from the attached target.
 This means that memory contents of the target will be captured
 and sent to Memfault's web server for analysis. The currently
@@ -1380,8 +1401,7 @@ Memfault will never share your data, coredumps, binary files (.elf)
 or other proprietary information with other companies or anyone else.
 
 Proceed? [y/n]
-"""
-        )  # This last newline is important! If it's not here, the last line is not shown on Windows!
+""")  # This last newline is important! If it's not here, the last line is not shown on Windows!
         if "Y" not in y.upper():
             print("Aborting...")
             analytics_props["user_input"] = y
@@ -1461,8 +1481,8 @@ Proceed? [y/n]
         elif status >= 200 and status < 300:
             print("Coredump uploaded successfully!")
             print("Once it has been processed, it will appear here:")
-            # FIXME: Print direct link to trace
-            # https://memfault.myjetbrains.com/youtrack/issue/MFLT-461
+            # TODO: Print direct link to trace
+            # MFLT-461
             print(_infer_issues_html_url(parsed_args.ingress_uri, config))
         else:
             print("Error occurred... HTTP Status {} {}".format(status, reason))
@@ -1543,7 +1563,8 @@ Proceed? [y/n]
         parser.add_argument(
             "--software-version",
             type=_character_check(
-                self.ALPHANUM_SLUG_DOTS_COLON_SPACES_PARENS_SLASH_REGEX, "software version"
+                self.ALPHANUM_SLUG_DOTS_COLON_SPACES_PARENS_SLASH_COMMA_REGEX,
+                "software version",
             ),
             help=(
                 "Overrides the software version that will be reported in the core dump."
@@ -1577,7 +1598,7 @@ Proceed? [y/n]
     def build_coredump_writer(self, parsed_args, analytics_props):
         # inferior.architecture() is a relatively new API, so let's use "show arch" instead:
         show_arch_output = gdb.execute("show arch", to_string=True).lower()
-        current_arch_matches = re.search("currently ([^)]+)", show_arch_output)
+        current_arch_matches = re.search(r"currently ([^)]+)", show_arch_output)
         if current_arch_matches:
             # Using groups() here instead of fn_match[1] for python2.x compatibility
             current_arch = current_arch_matches.groups()[0]
@@ -1618,7 +1639,7 @@ Proceed? [y/n]
         try:
             thread = gdb.selected_thread()
         except SystemError as e:
-            # Exception can be raised if selected thread has dissappeared in the mean time
+            # Exception can be raised if selected thread has disappeared in the mean time
             # SystemError: could not find gdb thread object
             print(e)
             thread = None
@@ -1631,10 +1652,8 @@ Proceed? [y/n]
         info_sections_output = gdb.execute("maintenance info sections", to_string=True)
         elf_fn, sections = parse_maintenance_info_sections(info_sections_output)
         if elf_fn is None or sections is None:
-            print(
-                """Could not find file and sections.
-This command requires that you use the 'load' command to load a binary/symbol (.elf) file first"""
-            )
+            print("""Could not find file and sections.
+This command requires that you use the 'load' command to load a binary/symbol (.elf) file first""")
             error = "Failed to parse sections"
             analytics_props["error"] = error
             ANALYTICS.error(error, info=info_sections_output)
@@ -1729,7 +1748,10 @@ class MemfaultLogin(MemfaultGdbCommand):
             "password", help="The user API key or password of the user to authenticate"
         )
         parser.add_argument(
-            "--organization", "-o", help="Default organization (slug) to use", default=None
+            "--organization",
+            "-o",
+            help="Default organization (slug) to use",
+            default=None,
         )
         parser.add_argument("--project", "-p", help="Default project (slug) to use", default=None)
         parser.add_argument(
@@ -1763,13 +1785,13 @@ class AnalyticsTracker(Thread):
         # Put in queue to offload to background thread, to avoid slowing down the GDB commands
         self._queue.put((event_name, event_properties, user_id))
 
-    def log(self, level, type, **kwargs):
+    def log(self, level, type, **kwargs):  # noqa: A002
         props = dict(**kwargs)
         props["type"] = type
         props["level"] = level
         self.track("Log", props)
 
-    def error(self, type, info=None):
+    def error(self, type, info=None):  # noqa: A002
         self.log("error", type, info=info)
 
     def _is_analytics_disabled(self):
@@ -1841,7 +1863,7 @@ def _track_script_sourced():
 
     ANALYTICS.track(
         "Script sourced",
-        # FIXME: MFLT-497 -- properly version this
+        # TODO: MFLT-497 -- properly version this
         {
             "version": "1",
             "python": platform.python_version(),

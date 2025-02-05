@@ -1,7 +1,7 @@
+# Memfault Firmware SDK
+
 [![CircleCI](https://circleci.com/gh/memfault/memfault-firmware-sdk.svg?style=svg)](https://circleci.com/gh/memfault/memfault-firmware-sdk)
 [![Coverage](https://img.shields.io/codecov/c/gh/memfault/memfault-firmware-sdk/master)](https://codecov.io/gh/memfault/memfault-firmware-sdk/)
-
-# Memfault Firmware SDK
 
 Ship Firmware with Confidence.
 
@@ -9,12 +9,12 @@ More details about the Memfault platform itself, how it works, and step-by-step
 integration guides
 [can be found here](https://mflt.io/embedded-getting-started).
 
-# Getting Started
+## Getting Started
 
 To start integrating in your platform today,
 [create a Memfault cloud account](https://mflt.io/signup).
 
-# Components
+## Components
 
 The SDK is designed as a collection of components, so you can include only what
 is needed for your project. The SDK has been designed to have minimal impact on
@@ -53,14 +53,14 @@ Please refer to the `README.md` in each of these for more details.
   Memfault service from devices.
 - `util` – various utilities.
 
-# Integrating the Memfault SDK
+## Integrating the Memfault SDK
 
 ## Add Memfault SDK to Your Repository
 
 The Memfault SDK can be added directly into your repository. The structure
 typically looks like:
 
-```
+```bash
 <YOUR_PROJECT>
 ├── third_party/memfault
 │               ├── memfault-firmware-sdk (submodule)
@@ -79,15 +79,15 @@ typically looks like:
 If you are using `git`, the Memfault SDK is typically added to a project as a
 submodule:
 
-```
-$ git submodule add git@github.com:memfault/memfault-firmware-sdk.git $YOUR_PROJECT/third_party/memfault/memfault-firmware-sdk
+```bash
+git submodule add https://github.com/memfault/memfault-firmware-sdk.git $YOUR_PROJECT/third_party/memfault/memfault-firmware-sdk
 ```
 
 This makes it easy to track the history of the Memfault SDK. You should not need
 to make modifications to the Memfault SDK. The typical update flow is:
 
 - `git pull` the latest upstream
-- check [CHANGES.md](CHANGES.md) to see if any modifications are needed
+- check [CHANGELOG.md](CHANGELOG.md) to see if any modifications are needed
 - update to the new submodule commit in your repo.
 
 Alternatively, the Memfault SDK may be added to a project as a git subtree or by
@@ -147,7 +147,7 @@ out
 The unit tests are run by CircleCI upon every commit to this repo. See badges at
 the top for build & test coverage status of the `master` branch.
 
-# FAQ
+## FAQ
 
 - Why does a coredump not show up under "Issues" after uploading it?
 
@@ -161,11 +161,11 @@ the top for build & test coverage status of the `master` branch.
 - I'm getting error XYZ, what to do now?
 
   - Don't hesitate to contact us for help! You can reach us through
-    [support@memfault.com](mailto:support@memfault.com).
+    <https://mflt.io/contact-support>.
 
-# License
+## License
 
 Unless specifically indicated otherwise in a file, all memfault-firmware-sdk
-files are all licensed under the [Memfault License](/License.txt). (A few files
-in the [examples](/examples) and [ports](/ports) directory are licensed
-differently based on vendor requirements.)
+files are all licensed under the [Memfault License](/LICENSE). (A few files in
+the [examples](/examples) and [ports](/ports) directory are licensed differently
+based on vendor requirements.)

@@ -1,6 +1,6 @@
 #
 # Copyright (c) Memfault, Inc.
-# See License.txt for details
+# See LICENSE for details
 #
 
 import json
@@ -98,9 +98,11 @@ def http_expect_request():
 
         return _connection_constructor
 
-    with mock.patch("memfault_gdb.HTTPSConnection", _create_connection_constructor("https")):
-        with mock.patch("memfault_gdb.HTTPConnection", _create_connection_constructor("http")):
-            yield _http_expect_request
+    with (
+        mock.patch("memfault_gdb.HTTPSConnection", _create_connection_constructor("https")),
+        mock.patch("memfault_gdb.HTTPConnection", _create_connection_constructor("http")),
+    ):
+        yield _http_expect_request
 
     assert actual_request_count == len(expected_requests)
 
@@ -221,11 +223,9 @@ def _settings_coredump_allowed(test_config):
 
 
 def test_parse_maintenance_info_sections_no_file():
-    fn, sections = parse_maintenance_info_sections(
-        """Remote serial target in gdb-specific protocol:
+    fn, sections = parse_maintenance_info_sections("""Remote serial target in gdb-specific protocol:
 Debugging a target over a serial line.
-"""
-    )
+""")
     assert fn is None
     assert sections is None
 
@@ -233,6 +233,7 @@ Debugging a target over a serial line.
 def test_parse_maintenance_info_sections_with_file(maintenance_info_sections_fixture, fake_elf):
     fn, sections = parse_maintenance_info_sections(maintenance_info_sections_fixture)
     assert fn == str(fake_elf)
+    assert sections
     assert len(sections) == 35
     assert sections[0] == Section(0x26000, 0x6B784 - 0x26000, ".text", read_only=True)
     assert sections[20] == Section(0x20005C30, 0x2000B850 - 0x20005C30, ".bss", read_only=False)
@@ -310,7 +311,7 @@ def test_read_memory_until_error_after_10k():
         nonlocal total_size
         total_size += _size
         if total_size > _size * 10:
-            raise ValueError()
+            raise ValueError
         return b"A" * _size
 
     inferior.read_memory.side_effect = _read_memory_raise_after_10k
@@ -328,7 +329,7 @@ def test_coredump_writer(snapshot):
         arch, device_serial, software_type, software_version, hardware_revision
     )
     cd_writer.trace_reason = 5
-    cd_writer.regs = [
+    cd_writer.regs = [  # pyright: ignore[reportAttributeAccessIssue]
         {
             "r0": 4 * b"\x00",
             "r1": 4 * b"\x01",
@@ -353,7 +354,7 @@ def test_coredump_writer(snapshot):
             "control": 4 * b"\x14",
         },
     ]
-    section = Section(4, 32, ".test", "")
+    section = Section(4, 32, ".test", "")  # pyright: ignore[reportArgumentType]
     section.data = b"hello world"
     cd_writer.add_section(section)
 
@@ -405,7 +406,9 @@ def _gdb_for_coredump(mocker, maintenance_info_sections_fixture, _settings_cored
 @pytest.mark.usefixtures("_gdb_for_coredump")
 def test_coredump_command_no_target(capsys):
     """Test coredump command shows error when no target is connected"""
-    gdb_fake.selected_inferior().threads.return_value = []
+    inferior = gdb_fake.selected_inferior()
+    assert inferior
+    inferior.threads.return_value = []
 
     cmd = MemfaultCoredump()
     cmd.invoke("--project-key {}".format(TEST_PROJECT_KEY), True)
@@ -435,7 +438,7 @@ def test_coredump_command_non_arm(mocker, capsys):
 def test_coredump_command_with_project_key(http_expect_request, test_config):
     """Test coredump command project key"""
 
-    # Expect to use ingress_uri from config if not provided explicitely to the command invocation
+    # Expect to use ingress_uri from config if not provided explicitly to the command invocation
     test_config.ingress_uri = "https://custom-ingress.memfault.com"
 
     http_expect_request(

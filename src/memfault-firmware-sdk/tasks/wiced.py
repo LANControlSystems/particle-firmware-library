@@ -1,8 +1,9 @@
 #
 # Copyright (c) Memfault, Inc.
-# See License.txt for details
+# See LICENSE for details
 #
 
+import contextlib
 import os
 import sys
 from glob import glob
@@ -83,7 +84,7 @@ def wiced_flash(ctx):
 
     # See doc/make_target_examples.txt:
     # "* For the BCM943364WCD1, BCM943438WCD1, and BCM9433634WCD1 examples you must also add "download_apps" to the end of
-    #    the target string to download the WLAN firmare to the external flash":
+    #    the target string to download the WLAN firmware to the external flash":
     _wiced_make(ctx, DEMO_APP_TARGET, "download", "download_apps")
 
     # The WICED SDK flash commands leaves the CoreDebug->DHCSR DEBUGEN bit set when the flash
@@ -105,10 +106,8 @@ def wiced_gdb(ctx, elf=DEMO_APP_ELF, gdb=3333):
     with ctx.cd(WICED_SDK_43X_ROOT):
         # Remove the generated .gdbinit -- running openocd using "shell start" within gdb doesn't seem to work very
         # reliably across board resets for some reason...
-        try:
+        with contextlib.suppress(FileNotFoundError):
             os.unlink(WICED_GDBINIT)
-        except FileNotFoundError:
-            pass
         cmd = gdb_build_cmd(None, elf, gdb, reset=False)
         ctx.run(cmd, pty=True)
 

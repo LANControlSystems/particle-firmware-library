@@ -1,7 +1,7 @@
 //! @file
 //!
 //! Copyright (c) Memfault, Inc.
-//! See License.txt for details
+//! See LICENSE for details
 //!
 //! Simple heap allocation tracking utility. Intended to shim into a system's
 //! malloc/free implementation to track last allocations with callsite
@@ -20,11 +20,18 @@
 #include "memfault-firmware-sdk/components/include/memfault/core/math.h"
 #include "memfault-firmware-sdk/components/include/memfault/core/platform/debug_log.h"
 #include "memfault-firmware-sdk/components/include/memfault/core/platform/overrides.h"
+#include "memfault-firmware-sdk/components/include/memfault/core/sdk_assert.h"
 
 #define MEMFAULT_HEAP_STATS_VERSION 2
 
 MEMFAULT_STATIC_ASSERT(MEMFAULT_HEAP_STATS_MAX_COUNT < MEMFAULT_HEAP_STATS_LIST_END,
                        "Number of entries in heap stats exceeds limits");
+
+// By default, tally in use blocks and max in use blocks in the instrumentation
+// functions. Disable this to perform manual tallying.
+#if !defined(MEMFAULT_IN_USE_BLOCK_COUNT_AUTOMATIC)
+  #define MEMFAULT_IN_USE_BLOCK_COUNT_AUTOMATIC 1
+#endif
 
 sMfltHeapStats g_memfault_heap_stats = {
   .version = MEMFAULT_HEAP_STATS_VERSION,
@@ -68,10 +75,10 @@ bool memfault_heap_stats_empty(void) {
 static uint16_t prv_get_previous_entry(uint16_t search_entry_index) {
   uint16_t index = MEMFAULT_HEAP_STATS_LIST_END;
 
-  for (uint16_t i = 0; i < MEMFAULT_ARRAY_SIZE(g_memfault_heap_stats_pool); i++) {
+  for (size_t i = 0; i < MEMFAULT_ARRAY_SIZE(g_memfault_heap_stats_pool); i++) {
     sMfltHeapStatEntry *entry = &g_memfault_heap_stats_pool[i];
     if (entry->info.in_use && entry->info.next_entry_index == search_entry_index) {
-      index = i;
+      index = (uint16_t)i;
       break;
     }
   }
@@ -81,17 +88,28 @@ static uint16_t prv_get_previous_entry(uint16_t search_entry_index) {
 
 //! Return the next entry index to write new data to
 //!
-//! First searches for unused entries
-//! If none are found then traverses list to oldest (last) entry
+//! First searches for never-used entries, then unused (used + freed) entries.
+//! If none are found then traverses list to oldest (last) entry.
 static uint16_t prv_get_new_entry_index(void) {
   sMfltHeapStatEntry *entry;
+  uint16_t unused_index = MEMFAULT_HEAP_STATS_LIST_END;
 
-  for (uint16_t i = 0; i < MEMFAULT_ARRAY_SIZE(g_memfault_heap_stats_pool); i++) {
+  for (size_t i = 0; i < MEMFAULT_ARRAY_SIZE(g_memfault_heap_stats_pool); i++) {
     entry = &g_memfault_heap_stats_pool[i];
 
     if (!entry->info.in_use) {
-      return i;  // favor unused entries
+      if (entry->info.size == 0) {
+        return (uint16_t)i;  // favor never used entries
+      }
+      // save the first inactive entry found
+      if (unused_index == MEMFAULT_HEAP_STATS_LIST_END) {
+        unused_index = (uint16_t)i;
+      }
     }
+  }
+
+  if (unused_index != MEMFAULT_HEAP_STATS_LIST_END) {
+    return unused_index;
   }
 
   // No unused entry found, return the oldest (entry with next index of
@@ -99,24 +117,38 @@ static uint16_t prv_get_new_entry_index(void) {
   return prv_get_previous_entry(MEMFAULT_HEAP_STATS_LIST_END);
 }
 
+void memfault_heap_stats_increment_in_use_block_count(void) {
+  g_memfault_heap_stats.in_use_block_count++;
+  if (g_memfault_heap_stats.in_use_block_count > g_memfault_heap_stats.max_in_use_block_count) {
+    g_memfault_heap_stats.max_in_use_block_count = g_memfault_heap_stats.in_use_block_count;
+  }
+}
+void memfault_heap_stats_decrement_in_use_block_count(void) {
+  g_memfault_heap_stats.in_use_block_count--;
+}
+
 void memfault_heap_stats_malloc(const void *lr, const void *ptr, size_t size) {
   prv_heap_stats_lock();
 
   if (ptr) {
-    g_memfault_heap_stats.in_use_block_count++;
-    if (g_memfault_heap_stats.in_use_block_count > g_memfault_heap_stats.max_in_use_block_count) {
-      g_memfault_heap_stats.max_in_use_block_count = g_memfault_heap_stats.in_use_block_count;
-    }
+#if MEMFAULT_IN_USE_BLOCK_COUNT_AUTOMATIC
+    memfault_heap_stats_increment_in_use_block_count();
+#endif
     uint16_t new_entry_index = prv_get_new_entry_index();
+
+    // Ensure a valid entry index is returned. An invalid index can indicate a concurrency
+    // misconfiguration. MEMFAULT_HEAP_STATS_MALLOC/FREE must prevent concurrent access via
+    // memfault_lock/unlock or other means
+    MEMFAULT_SDK_ASSERT(new_entry_index != MEMFAULT_HEAP_STATS_LIST_END);
+
     sMfltHeapStatEntry *new_entry = &g_memfault_heap_stats_pool[new_entry_index];
     *new_entry = (sMfltHeapStatEntry){
       .lr = lr,
       .ptr = ptr,
-      .info =
-        {
-          .size = size & (~(1u << 31)),
-          .in_use = 1u,
-        },
+      .info = {
+        .size = size & (~(1u << 31)),
+        .in_use = 1u,
+      },
     };
 
     // Append new entry to head of the list
@@ -139,23 +171,25 @@ void memfault_heap_stats_malloc(const void *lr, const void *ptr, size_t size) {
 void memfault_heap_stats_free(const void *ptr) {
   prv_heap_stats_lock();
   if (ptr) {
-    g_memfault_heap_stats.in_use_block_count--;
+#if MEMFAULT_IN_USE_BLOCK_COUNT_AUTOMATIC
+    memfault_heap_stats_decrement_in_use_block_count();
+#endif
 
     // if the pointer exists in the tracked stats, mark it as freed
-    for (uint16_t i = 0; i < MEMFAULT_ARRAY_SIZE(g_memfault_heap_stats_pool); i++) {
+    for (size_t i = 0; i < MEMFAULT_ARRAY_SIZE(g_memfault_heap_stats_pool); i++) {
       sMfltHeapStatEntry *entry = &g_memfault_heap_stats_pool[i];
       if ((entry->ptr == ptr) && entry->info.in_use) {
         entry->info.in_use = 0;
 
         // Find the entry previous to the removed entry
-        uint16_t previous_entry_index = prv_get_previous_entry(i);
+        uint16_t previous_entry_index = prv_get_previous_entry((uint16_t)i);
 
         // If list head removed, set next entry as new list head
         if (g_memfault_heap_stats.stats_pool_head == i) {
           g_memfault_heap_stats.stats_pool_head = entry->info.next_entry_index;
         }
 
-        // If there's a valid previous entry, set it's next index to removed entry's
+        // If there's a valid previous entry, set its next index to removed entry's
         if (previous_entry_index != MEMFAULT_HEAP_STATS_LIST_END) {
           g_memfault_heap_stats_pool[previous_entry_index].info.next_entry_index =
             entry->info.next_entry_index;

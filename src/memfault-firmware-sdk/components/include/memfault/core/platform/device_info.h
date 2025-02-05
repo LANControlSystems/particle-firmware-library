@@ -3,7 +3,7 @@
 //! @file
 //!
 //! Copyright (c) Memfault, Inc.
-//! See License.txt for details
+//! See LICENSE for details
 //! @details
 //!
 //! @brief
@@ -15,6 +15,11 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+//! Maximum string size of a field in MemfaultDeviceInfo. Does not include NULL terminator
+#if !defined(MEMFAULT_DEVICE_INFO_MAX_STRING_SIZE)
+  #define MEMFAULT_DEVICE_INFO_MAX_STRING_SIZE 128
+#endif  // !defined(MEMFAULT_DEVICE_INFO_MAX_STRING_SIZE)
 
 typedef struct MemfaultDeviceInfo {
   //! The device's serial number or unique identifier.

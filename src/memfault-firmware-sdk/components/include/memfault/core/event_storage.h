@@ -3,7 +3,7 @@
 //! @file
 //!
 //! Copyright (c) Memfault, Inc.
-//! See License.txt for details
+//! See LICENSE for details
 //!
 //! @brief
 //! Stores serialized event information that is ready to be sent up to the Memfault cloud (i.e
@@ -16,17 +16,19 @@
 //! @note Recorded events are always written into RAM for minimal latency. Users of the API can
 //! (optionally) implement the non-volatile event storage platform API and periodically flush
 //! events to a non-volatile storage medium. More details can be found in
-//! "memfault/core/platform/nonvolatile_event_storage.h"
+//! "memfault-firmware-sdk/components/include/memfault/core/platform/nonvolatile_event_storage.h"
 
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
+#include "memfault-firmware-sdk/components/include/memfault/config.h"
+
 // The unity test framework (http://www.throwtheswitch.org/unity) fails to generate mocks when
 // opaque pointers are used in a header.  To work around, the problem, we pull in the full internal
 // definition for "sMemfaultEventStorageImpl" when the unity framework is being used.
 #if defined(UNITY_INCLUDE_CONFIG_H)
-#include "memfault-firmware-sdk/components/include/memfault/core/event_storage_implementation.h"
+  #include "memfault-firmware-sdk/components/include/memfault/core/event_storage_implementation.h"
 #endif
 
 #ifdef __cplusplus
@@ -66,6 +68,7 @@ typedef struct MemfaultEventStorageInfo {
   size_t bytes_free;
 } sMemfaultEventStorageInfo;
 
+#if MEMFAULT_EVENT_STORAGE_NV_SUPPORT_ENABLED
 typedef struct MemfaultEventStoragePersistCbStatus {
   //! Summarizes the utilization of the RAM buffer passed in memfault_events_storage_boot()
   sMemfaultEventStorageInfo volatile_storage;
@@ -90,20 +93,36 @@ typedef struct MemfaultEventStoragePersistCbStatus {
 //! @note It is safe to call "memfault_event_storage_persist()" both synchronously and
 //!  asynchronously from this callback
 void memfault_event_storage_request_persist_callback(
-    const sMemfaultEventStoragePersistCbStatus *status);
+  const sMemfaultEventStoragePersistCbStatus *status);
 
 //! Saves events which have been collected into non-volatile storage
 //!
 //! @return number of events saved or <0 for unexpected errors
 int memfault_event_storage_persist(void);
 
-//! Simple API call to retrieve the number of bytes used in the allocated event storage buffer.
-//! Returns zero if the storage has not been allocated.
+#endif
+
+//! Retrieve the number of bytes used in the allocated event storage buffer.
+//!
+//! @note This function must not be called from an ISR context.
+//!
+//! @return zero if the storage has not been allocated.
 size_t memfault_event_storage_bytes_used(void);
 
-//! Simple API call to retrieve the number of bytes free (unused) in the allocated event storage buffer.
-//! Returns zero if the storage has not been allocated.
+//! Retrieve the number of bytes free (unused) in the allocated event storage
+//! buffer.
+//!
+//! @note This function must not be called from an ISR context.
+//!
+//! @return zero if the storage has not been allocated.
 size_t memfault_event_storage_bytes_free(void);
+
+//! Check if event storage component has booted
+//!
+//! @note This function must not be called from an ISR context.
+//!
+//! @returns true if event storage booted or false if not
+bool memfault_event_storage_booted(void);
 
 #ifdef __cplusplus
 }

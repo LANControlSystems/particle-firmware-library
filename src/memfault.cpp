@@ -6,6 +6,7 @@
 #include <functional>
 #include <stdarg.h>
 #include <stdio.h>
+#include <fcntl.h>
 
 #define PARTICLE_USE_UNSTABLE_API
 #include "deviceid_hal.h"
@@ -34,6 +35,7 @@ static retained uint8_t s_reboot_tracking[MEMFAULT_REBOOT_TRACKING_REGION_SIZE];
 
 static char s_hardware_version[32] = "Unset-Hw";
 static char s_system_version[32] = MEMFAULT_EXPAND_AND_QUOTE(SYSTEM_VERSION_STRING);
+static bool s_battery_is_discharging = false;
 
 #if MEMFAULT_PARTICLE_PORT_PANIC_HANDLER_HOOK_ENABLE
 static void prv_memfault_panic_handler(const ePanicCode code, const void *extraInfo) {
@@ -51,6 +53,10 @@ void memfault_sdk_assert_func_noreturn(void) {
 }
 
 void Memfault::process(void) {
+
+  battery_charge_state_update();
+  update_connectivity_path();
+
   if (!m_connected) {
     // we are not connected, skip attempting to send data
     return;
@@ -231,6 +237,85 @@ int Memfault::run_debug_cli_command(const char *command, int argc, char **argv) 
 }
 #endif /* MEMFAULT_PARTICLE_PORT_DEBUG_API_ENABLE */
 
+typedef enum
+{
+	PATH_UNKNOWN,
+	PATH_LTE,
+	PATH_GSM,
+  PATH_UMTS,
+  PATH_WIFI,
+  PATH_ETHERNET
+} path_e;
+
+int determine_current_path()
+{
+  path_e current_path = PATH_UNKNOWN;
+
+  if (Particle.connectionInterface() == WiFi)
+  {
+    current_path = PATH_WIFI;
+  }
+  else if (Particle.connectionInterface() == Ethernet)
+  {
+    current_path = PATH_ETHERNET;
+  }
+  else
+  {
+    //Asume cellular
+		CellularSignal signal = Cellular.RSSI();
+    switch(signal.getAccessTechnology())
+		{
+			case NET_ACCESS_TECHNOLOGY_GSM: current_path = PATH_GSM; break;
+			case NET_ACCESS_TECHNOLOGY_EDGE: current_path = PATH_GSM; break;
+			case NET_ACCESS_TECHNOLOGY_UMTS: current_path = PATH_UMTS; break;
+			case NET_ACCESS_TECHNOLOGY_LTE: current_path = PATH_LTE; break;
+
+      default:
+      case NET_ACCESS_TECHNOLOGY_CDMA:
+			case NET_ACCESS_TECHNOLOGY_LTE_CAT_M1:
+			case NET_ACCESS_TECHNOLOGY_LTE_CAT_NB1:
+        current_path = PATH_UNKNOWN;
+        break;
+		}
+  }
+  return current_path;
+}
+
+MemfaultMetricId get_path_metric(int path)
+{
+  switch(path)
+  {
+    case PATH_LTE: return MEMFAULT_METRICS_KEY(Cloud_Connectivity_LTE);
+    case PATH_GSM: return MEMFAULT_METRICS_KEY(Cloud_Connectivity_GSM);
+    case PATH_UMTS: return MEMFAULT_METRICS_KEY(Cloud_Connectivity_UMTS);
+    case PATH_WIFI: return MEMFAULT_METRICS_KEY(Cloud_Connectivity_WIFI);
+    case PATH_ETHERNET: return MEMFAULT_METRICS_KEY(Cloud_Connectivity_ETHERNET);
+    default: return MEMFAULT_METRICS_KEY(Cloud_Connectivity_UNKNOWN);
+  }
+}
+
+bool is_path_cellular(int path)
+{
+  return path == PATH_LTE || path == PATH_GSM || path == PATH_UMTS;
+}
+
+void Memfault::update_connectivity_path() {
+  int current_path = determine_current_path();
+
+  if (current_path != m_path) {
+    memfault_metrics_heartbeat_timer_stop(get_path_metric(m_path));
+    memfault_metrics_heartbeat_timer_start(get_path_metric(current_path));
+
+    if (is_path_cellular(current_path) && !is_path_cellular(m_path)) {
+      memfault_metrics_heartbeat_timer_start(MEMFAULT_METRICS_KEY(Cloud_Connectivity_CELLULAR));
+    }
+    if (!is_path_cellular(current_path) && is_path_cellular(m_path)) {
+      memfault_metrics_heartbeat_timer_stop(MEMFAULT_METRICS_KEY(Cloud_Connectivity_CELLULAR));
+    }
+    m_path = current_path;
+  }
+}
+
 void Memfault::handle_cloud_connectivity_event(system_event_t event, int param) {
   if (event != cloud_status) {
     MEMFAULT_LOG_ERROR("Unexpected cloud event type: %lld", event);
@@ -242,24 +327,19 @@ void Memfault::handle_cloud_connectivity_event(system_event_t event, int param) 
 #if MEMFAULT_PARTICLE_PORT_CLOUD_METRICS_ENABLE
   switch (param) {
     case cloud_status_disconnected:
-      memfault_metrics_heartbeat_timer_stop(MEMFAULT_METRICS_KEY(Cloud_ConnectingTime));
-      memfault_metrics_heartbeat_timer_stop(MEMFAULT_METRICS_KEY(Cloud_ConnectedTime));
+      memfault_metrics_connectivity_connected_state_change(kMemfaultMetricsConnectivityState_ConnectionLost);
       memfault_metrics_heartbeat_add(MEMFAULT_METRICS_KEY(Cloud_DisconnectCount), 1);
       break;
 
     case cloud_status_connecting:
-      memfault_metrics_heartbeat_timer_start(MEMFAULT_METRICS_KEY(Cloud_ConnectingTime));
       break;
 
     case cloud_status_connected:
-      memfault_metrics_heartbeat_timer_stop(MEMFAULT_METRICS_KEY(Cloud_ConnectingTime));
-      memfault_metrics_heartbeat_timer_start(MEMFAULT_METRICS_KEY(Cloud_ConnectedTime));
+      memfault_metrics_connectivity_connected_state_change(kMemfaultMetricsConnectivityState_Connected);
       memfault_metrics_heartbeat_add(MEMFAULT_METRICS_KEY(Cloud_ConnectCount), 1);
       break;
 
     case cloud_status_disconnecting:
-      memfault_metrics_heartbeat_timer_stop(MEMFAULT_METRICS_KEY(Cloud_ConnectingTime));
-      memfault_metrics_heartbeat_timer_stop(MEMFAULT_METRICS_KEY(Cloud_ConnectedTime));
       break;
     default:
       break;
@@ -371,6 +451,7 @@ void memfault_platform_get_device_info(sMemfaultDeviceInfo *info) {
 }
 
 void memfault_platform_reboot(void) {
+  //System.backupRamSync(); - this should be done to ensure backed up but causes a hang
   System.reset(RESET_NO_WAIT);
 
   MEMFAULT_UNREACHABLE;
@@ -504,6 +585,9 @@ Memfault::Memfault(const uint16_t product_version, const char *build_metadata, c
   // register for system events
   System.on(cloud_status, &Memfault::handle_cloud_connectivity_event, this);
 
+  // always connected so trigger started at boot
+  memfault_metrics_connectivity_connected_state_change(kMemfaultMetricsConnectivityState_Started);
+
   // Grab the revision of the particle board being used for a given product type.
   if (hardware_version == NULL) {
     // Use default hardware_version scheme
@@ -581,3 +665,139 @@ Memfault::Memfault(const uint16_t product_version, const char *build_metadata, c
 
   MEMFAULT_LOG_INFO("Memfault Initialized!");
 }
+
+#if MEMFAULT_PLATFORM_COREDUMP_STORAGE_USE_FLASH
+void memfault_platform_coredump_storage_get_info(sMfltCoredumpStorageInfo *info) 
+{
+  *info = (sMfltCoredumpStorageInfo){
+    .size = MEMFAULT_PLATFORM_COREDUMP_STORAGE_FLASH_SIZE,
+  };
+}
+
+bool memfault_platform_coredump_storage_read(uint32_t offset, void *data, size_t read_len) 
+{
+  Log.info("read coredump off=%ld len=%d", offset, read_len);
+  int fd = open("/usr/coredump", O_RDONLY);
+  if (fd != -1) {
+    Log.info("read coredump fd=%d", fd);
+    if (lseek(fd, offset, SEEK_SET) != (long)offset)
+    {
+      Log.error("failed to seek coredump read fd=%d %ld", fd, offset);
+      return false;
+    }
+    int retval = read(fd, data, read_len);
+    if (retval != (int)read_len)
+    {
+      Log.error("failed to read coredump fd=%d len=%d (error %d)", fd, read_len, retval);
+      return false;
+    }
+
+    Log.info("read coredump fd=%d", fd);
+    close(fd);
+    return true;
+  }
+  return false;
+}
+
+bool memfault_platform_coredump_storage_erase(uint32_t offset, size_t erase_size) 
+{
+  int fd = open("coredump", O_RDWR | O_CREAT);
+  if (fd) {
+    if (lseek(fd, offset, SEEK_SET) != offset)
+    {
+      Log.error("failed to seek coredump fd=%d %d", fd, offset);
+      return false;
+    }
+    int retval = write(fd, data, data_len);
+    if (retval != data_len)
+    {
+      Log.error("failed to write coredump fd=%d %d (error %d)", fd, data, retval);
+      return false;
+    }
+
+    Log.info("write coredump fd=%d", fd);
+    close(fd);
+    return true;
+  }
+    Log.error("erase coredump offset %ld, length %d", offset, erase_size);
+  return false;
+}
+
+bool memfault_platform_coredump_storage_write(uint32_t offset, const void *data, size_t data_len) 
+{
+    Log.info("write coredump off=%ld len=%d", offset, data_len);
+
+  int fd = open("/usr/coredump", O_RDWR | O_CREAT);
+  if (fd != -1) {
+    Log.info("write coredump fd=%d", fd);
+    if (lseek(fd, offset, SEEK_SET) != (long)offset)
+    {
+      Log.error("failed to seek coredump write fd=%d %ld", fd, offset);
+      return false;
+    }
+    int retval = write(fd, data, data_len);
+    if (retval != (int)data_len)
+    {
+      Log.error("failed to write coredump fd=%d len=%d (error %d)", fd, data_len, retval);
+      return false;
+    }
+
+    Log.info("write coredump fd=%d", fd);*
+    close(fd);
+    return true;
+  }
+  return false;
+}
+
+void memfault_platform_coredump_storage_clear(void) {
+  unlink("/usr/coredump");
+}
+
+#endif
+
+#if MEMFAULT_METRICS_BATTERY_ENABLE
+
+// This function is called on system initialization, to set the initial
+// discharging state
+void battery_set_initial_discharging_state(void) {
+  s_battery_is_discharging = System.batteryState() == BATTERY_STATE_DISCHARGING;
+}
+
+// This function is called by when the battery discharging state changes, i.e.:
+// CHARGING → DISCHARGING or DISCHARGING → CHARGING
+void Memfault::battery_charge_state_update() {
+  const bool discharging = System.batteryState() == BATTERY_STATE_DISCHARGING;
+  if (discharging != s_battery_is_discharging) {
+    // update the state of the battery
+    s_battery_is_discharging = discharging;
+
+    if(!discharging) {
+      // signal the Memfault SDK that the battery has stopped discharging
+      memfault_metrics_battery_stopped_discharging();
+    }
+  }
+}
+
+// This function is called by the Memfault SDK at each Heartbeat interval end,
+// to get the current battery state-of-charge and discharging state.
+int memfault_platform_get_stateofcharge(sMfltPlatformBatterySoc *soc) {
+  float soc_percentage = 0;
+  
+  if (System.batteryState() != BATTERY_STATE_DISCONNECTED)
+    soc_percentage = System.batteryCharge();
+
+  // for rechargeable batteries, check if the battery is discharging (i.e. not
+  // charging)
+  const bool discharging = System.batteryState() == BATTERY_STATE_DISCHARGING;
+
+  // set the output data
+  *soc = (sMfltPlatformBatterySoc){
+    // scale up the floating-point percentage to be an integer with 2 decimal
+    // places of precision, matching the selection of MEMFAULT_METRICS_BATTERY_SOC_PCT_SCALE_VALUE
+    .soc = (uint32_t)(soc_percentage * 100.0f),
+    .discharging = discharging,
+  };
+  return 0;
+}
+
+#endif

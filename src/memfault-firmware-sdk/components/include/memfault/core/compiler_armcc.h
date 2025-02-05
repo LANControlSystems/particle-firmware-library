@@ -3,7 +3,7 @@
 //! @file
 //!
 //! Copyright (c) Memfault, Inc.
-//! See License.txt for details
+//! See LICENSE for details
 //!
 //! @brief
 //! Wrappers for common macros & compiler specifics
@@ -27,7 +27,8 @@ extern "C" {
 #define MEMFAULT_WEAK __attribute__((weak))
 #define MEMFAULT_PRINTF_LIKE_FUNC(a, b)
 #define MEMFAULT_CLZ(a) __clz(a)
-
+//! Non-loaded symbols are specified by linker section, not compiler attribute
+#define MEMFAULT_NO_ALLOC
 
 #define MEMFAULT_GET_LR(_a) _a = ((void *)__return_address())
 #define MEMFAULT_GET_PC(_a) _a = (void *)__current_pc()
@@ -35,7 +36,7 @@ extern "C" {
 #define MEMFAULT_BREAKPOINT(val) __breakpoint(val)
 
 #define MEMFAULT_STATIC_ASSERT(expr, msg) \
-    enum {MEMFAULT_CONCAT(MEMFAULT_ASSERTION_AT_, __LINE__) = sizeof(char[(expr) ? 1 : -1])}
+  enum { MEMFAULT_CONCAT(MEMFAULT_ASSERTION_AT_, __LINE__) = sizeof(char[(expr) ? 1 : -1]) }
 
 #define MEMFAULT_DISABLE_WARNING(warning)
 

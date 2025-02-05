@@ -1,6 +1,6 @@
 #
 # Copyright (c) Memfault, Inc.
-# See License.txt for details
+# See LICENSE for details
 #
 
 """
@@ -17,7 +17,7 @@ import xml.etree.ElementTree as ET  # noqa: N817
 
 
 def get_depth_from_parent(project_dir, memfault_dir):
-    common_prefix = os.path.commonprefix([memfault_dir, project_dir])
+    common_prefix = os.path.commonpath([memfault_dir, project_dir])
     depth = 1
     dirname = project_dir
 
@@ -49,9 +49,7 @@ def generate_link_element(name, path, path_type="1"):
 \t\t<type>{PATH_TYPE}</type>
 \t\t<locationURI>{PATH}</locationURI>
 \t</link>
-""".format(
-            NAME=name, PATH=path, PATH_TYPE=path_type
-        )
+""".format(NAME=name, PATH=path, PATH_TYPE=path_type)
     )
     ele.tail = "\n\t"
     return ele
@@ -82,6 +80,25 @@ def get_file_element(file_name, virtual_dir, common_prefix, parent_dir, path_typ
     return generate_link_element(name, path, path_type=path_type)
 
 
+def generate_st_linker_option():
+    ele = ET.fromstring(  # noqa: S314
+        """
+<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.c.linker.option.otherflags" superClass="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.c.linker.option.otherflags" valueType="stringList">
+\t\t\t\t\t\t\t\t\t</option>
+"""
+    )
+    ele.tail = "\n\t\t\t\t\t\t\t\t"
+    return ele
+
+
+def generate_st_build_id_flag():
+    ele = ET.fromstring(  # noqa: S314
+        """<listOptionValue builtIn="false" value="-Wl,--build-id" />"""
+    )
+    ele.tail = "\n\t\t\t\t\t\t\t\tq"
+    return ele
+
+
 def recursive_glob_backport(dir_glob):
     # Find first directory wildcard and walk the tree from there
     glob_root = dir_glob.split("/*")[0]
@@ -107,7 +124,9 @@ def files_to_link(dir_glob, virtual_dir, common_prefix, parent_dir):
         # Python < 3.5 do not support "recursive=True" arg for glob.glob
         files = recursive_glob_backport(dir_glob)
     files = recursive_glob_backport(dir_glob)
-    for file_name in files:
+
+    # Sort the files so that the order is deterministic
+    for file_name in sorted(files):
         # Note:
         #  - xtensa targets (i.e ESP) use CMake/Make so no need to add to eclipse based projects
         #  - skip adding "memfault_demo_http" from demo component
@@ -132,7 +151,7 @@ def patch_project(
         raise RuntimeError("Could not location project file at {}".format(project_file))
 
     if not os.path.isdir(memfault_sdk_dir) or not os.path.isfile(
-        "{}/VERSION".format(memfault_sdk_dir)
+        "{}/CHANGELOG.md".format(memfault_sdk_dir)
     ):
         raise RuntimeError("Could not locate memfault-firmware-sdk at {}".format(memfault_sdk_dir))
 
@@ -173,7 +192,7 @@ def patch_project(
     # added. We will just be adding them back below.
     for link in linked_resources.findall("link"):
         name = link.find(".//name")
-        if name is not None and "memfault_" in name.text:
+        if name is not None and "memfault_" in name.text:  # pyright: ignore[reportOperatorIssue]
             linked_resources.remove(link)
 
     comp_folder_name = "memfault_components"
@@ -268,15 +287,15 @@ def patch_cproject(
     #
 
     def _find_include_nodes(option):
-        return option.get("id", "").startswith(
-            (
-                # this is the element id used by Dialog's Smart Snippets Studio
-                # IDE (and possibly others)
-                "ilg.gnuarmeclipse.managedbuild.cross.option.c.compiler.include.paths",
-                # this is the element id used by NXP's MCUXpresso IDE
-                "gnu.c.compiler.option.include.paths",
-            )
-        )
+        return option.get("id", "").startswith((
+            # this is the element id used by Dialog's Smart Snippets Studio
+            # IDE (and possibly others)
+            "ilg.gnuarmeclipse.managedbuild.cross.option.c.compiler.include.paths",
+            # this is the element id used by NXP's MCUXpresso IDE
+            "gnu.c.compiler.option.include.paths",
+            # Element used by ST's STM32Cube IDE for include path enumeration
+            "com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.c.compiler.option.includepaths",
+        ))
 
     memfault_sdk_include_paths = [
         "${workspace_loc:/${ProjName}/memfault_includes/components/include}",
@@ -299,11 +318,53 @@ def patch_cproject(
             include_option.append(ele)
 
     #
+    # Add GNU build id to STM32Cube IDE based projects
+    #
+
+    def _find_st_linker_tools(tool):
+        return tool.get("id", "").startswith(
+            # Element used by ST's STM32Cube IDE for linker arguments
+            "com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.c.linker",
+        )
+
+    def _find_st_linker_options(option):
+        return option.get("id", "").startswith(
+            "com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.c.linker.option.otherflags"
+        )
+
+    def _find_st_build_id_linker_flag(option):
+        return "--build-id" in option.get("value", "")
+
+    tools = root.findall(".//tool")
+    linker_tools = filter(_find_st_linker_tools, tools)
+    for linker_tool in linker_tools:
+        all_linker_options = linker_tool.findall(".//option")
+
+        linker_options = filter(_find_st_linker_options, all_linker_options)
+        if len(list(linker_options)) != 0:
+            continue
+
+        ele = generate_st_linker_option()
+        linker_tool.insert(0, ele)
+
+        # reload all linker options and now add the flag itself
+        linker_options = filter(_find_st_linker_options, linker_tool.findall(".//option"))
+        for linker_option in linker_options:
+            linker_flags = filter(
+                _find_st_build_id_linker_flag, linker_option.findall(".//listOptionValue")
+            )
+            if len(list(linker_flags)) != 0:
+                continue
+            ele = generate_st_build_id_flag()
+            linker_option.insert(0, ele)
+
+    #
     # Add GNU build id generation for all build configurations:
     #
 
     def _find_linker_flags(option):
         return option.get("id", "").startswith(
+            # Element used by Dialog's Smart Snippets Studio IDE
             "ilg.gnuarmeclipse.managedbuild.cross.option.c.linker.other"
         ) and option.get("name", "").startswith("Other linker flags")
 
@@ -315,7 +376,7 @@ def patch_cproject(
 
     #
     # Overwrite original .cproject file with updates and pull back in processing instruction text
-    # which was exctracted earlier
+    # which was extracted earlier
     #
 
     output_location = cproject_file if output_dir is None else os.path.join(output_dir, ".cproject")
@@ -353,11 +414,14 @@ $ python eclipse_patch.py --project-dir . --memfault-sdk-dir /path/to/memfault-f
         required=True,
         help="The directory with the Eclipse .project to update",
     )
+    # get the current directory of this script, and go up one level to get the
+    # default memfault-sdk-dir
+    default_memfault_sdk_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     parser.add_argument(
         "-m",
         "--memfault-sdk-dir",
-        required=True,
-        help="The directory memfault-firmware-sdk was copied to",
+        default=default_memfault_sdk_dir,
+        help="The directory memfault-firmware-sdk was copied to. Default is the parent directory of this script",
     )
     parser.add_argument(
         "--target-port", help="The port to pick up for a project, i.e dialog/da145xx"
@@ -427,6 +491,6 @@ $ python eclipse_patch.py --project-dir . --memfault-sdk-dir /path/to/memfault-f
     )
 
     logging.info(
-        "Hurray, .project & .cproject have been succesfully patched! Be sure to 'Refresh' project"
+        "Hurray, .project & .cproject have been successfully patched! Be sure to 'Refresh' project"
         " to synchronize changes!"
     )

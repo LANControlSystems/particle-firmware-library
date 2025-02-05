@@ -3,11 +3,11 @@
 //! @file
 //!
 //! Copyright (c) Memfault, Inc.
-//! See License.txt for details
+//! See LICENSE for details
 //!
 //! @brief
 //! Internal file that should never be included by a consumer of the SDK. See
-//! "memfault/core/build_info.h" for details on how to leverage the build id.
+//! "memfault-firmware-sdk/components/include/memfault/core/build_info.h" for details on how to leverage the build id.
 
 #include <stddef.h>
 #include <stdint.h>
@@ -34,13 +34,19 @@ typedef enum {
 } eMemfaultBuildIdType;
 
 typedef struct {
-  uint8_t type; // eMemfaultBuildIdType
+  const char *name;
+  const char *version;
+} sMfltOsVersion;
+
+typedef struct {
+  uint8_t type;  // eMemfaultBuildIdType
   uint8_t len;
   // the length, in bytes, of the build id used when reporting data
   uint8_t short_len;
   uint8_t rsvd;
   const void *storage;
   const sMfltSdkVersion sdk_version;
+  const sMfltOsVersion os_version;
 } sMemfaultBuildIdStorage;
 
 MEMFAULT_STATIC_ASSERT(((offsetof(sMemfaultBuildIdStorage, type) == 0) &&
@@ -48,24 +54,25 @@ MEMFAULT_STATIC_ASSERT(((offsetof(sMemfaultBuildIdStorage, type) == 0) &&
                        "be sure to update fw_build_id.py!");
 
 #if defined(MEMFAULT_UNITTEST)
-//! NB: For unit tests we want to be able to instrument the data in the test
-//! so we drop the `const` qualifier
-#define MEMFAULT_BUILD_ID_QUALIFIER
+  //! NB: For unit tests we want to be able to instrument the data in the test
+  //! so we drop the `const` qualifier
+  #define MEMFAULT_BUILD_ID_QUALIFIER
 #else
-#define MEMFAULT_BUILD_ID_QUALIFIER const
+  #define MEMFAULT_BUILD_ID_QUALIFIER const
 #endif
 
 extern MEMFAULT_BUILD_ID_QUALIFIER sMemfaultBuildIdStorage g_memfault_build_id;
 extern MEMFAULT_BUILD_ID_QUALIFIER uint8_t g_memfault_sdk_derived_build_id[];
 
-//! The layout of a Note section in an ELF. This is how Build Id information is layed out when
+//! The layout of a Note section in an ELF. This is how Build Id information is laid out when
 //! using kMemfaultBuildIdType_GnuBuildIdSha1
 typedef MEMFAULT_PACKED_STRUCT {
   uint32_t namesz;
   uint32_t descsz;
   uint32_t type;
-  char  namedata[];
-} sMemfaultElfNoteSection;
+  char namedata[];
+}
+sMemfaultElfNoteSection;
 
 #ifdef __cplusplus
 }

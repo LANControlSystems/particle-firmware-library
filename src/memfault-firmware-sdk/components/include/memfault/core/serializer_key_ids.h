@@ -3,7 +3,7 @@
 //! @file
 //!
 //! Copyright (c) Memfault, Inc.
-//! See License.txt for details
+//! See LICENSE for details
 //!
 //! @brief
 //! Internal keys used for serializing different types of event ids. Users of the SDK should never
@@ -13,7 +13,7 @@
 extern "C" {
 #endif
 
-#define MEMFAULT_CBOR_SCHEMA_VERSION_V1 (1) // NOTE: implies "sdk_version": "0.5.0"
+#define MEMFAULT_CBOR_SCHEMA_VERSION_V1 (1)  // NOTE: implies "sdk_version": "0.5.0"
 
 typedef enum {
   kMemfaultEventKey_CapturedDateUnixTimestamp = 1,
@@ -41,6 +41,7 @@ typedef enum {
 //! EventInfo dictionary keys for events with type kMemfaultEventType_Heartbeat.
 typedef enum {
   kMemfaultHeartbeatInfoKey_Metrics = 1,
+  kMemfaultHeartbeatInfoKey_Session = 2,
 } eMemfaultHeartbeatInfoKey;
 
 //! EventInfo dictionary keys for events with type kMemfaultEventType_Trace.

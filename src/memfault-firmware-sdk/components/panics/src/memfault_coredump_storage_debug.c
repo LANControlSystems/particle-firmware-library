@@ -1,7 +1,7 @@
 //! @file
 //!
 //! Copyright (c) Memfault, Inc.
-//! See License.txt for details
+//! See LICENSE for details
 //!
 //! @brief
 //! A collection of utilities that can be used to validate the platform port of
@@ -19,8 +19,6 @@
 //!   memfault_coredump_storage_debug_test_finish();
 //! }
 
-#include "memfault-firmware-sdk/components/include/memfault/panics/coredump.h"
-
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -30,6 +28,7 @@
 #include "memfault-firmware-sdk/components/include/memfault/core/compiler.h"
 #include "memfault-firmware-sdk/components/include/memfault/core/debug_log.h"
 #include "memfault-firmware-sdk/components/include/memfault/core/math.h"
+#include "memfault-firmware-sdk/components/include/memfault/panics/coredump.h"
 #include "memfault-firmware-sdk/components/include/memfault/panics/platform/coredump.h"
 
 typedef enum {
@@ -58,10 +57,10 @@ typedef struct {
 static sMemfaultCoredumpStorageTestResult s_test_result;
 static uint8_t s_read_buf[16];
 
-static void prv_record_failure(
-    eMemfaultCoredumpStorageTestOp op, eMemfaultCoredumpStorageResult result,
-    uint32_t offset, uint32_t size) {
-  s_test_result = (sMemfaultCoredumpStorageTestResult) {
+static void prv_record_failure(eMemfaultCoredumpStorageTestOp op,
+                               eMemfaultCoredumpStorageResult result, uint32_t offset,
+                               uint32_t size) {
+  s_test_result = (sMemfaultCoredumpStorageTestResult){
     .op = op,
     .result = result,
     .offset = offset,
@@ -89,18 +88,16 @@ bool memfault_coredump_storage_debug_test_begin(void) {
   memfault_platform_coredump_storage_get_info(&info);
   if (info.size == 0) {
     prv_record_failure(kMemfaultCoredumpStorageTestOp_GetInfo,
-                       kMemfaultCoredumpStorageResult_PlatformApiFail,
-                       0, info.size);
+                       kMemfaultCoredumpStorageResult_PlatformApiFail, 0, info.size);
     return false;
   }
 
   // On some ports there maybe some extra setup that needs to occur
   // before we can safely use the backing store without interrupts
   // enabled. Call this setup function now.
-  if (!memfault_platform_coredump_save_begin()) {
+  if (!memfault_port_coredump_save_begin() || !memfault_platform_coredump_save_begin()) {
     prv_record_failure(kMemfaultCoredumpStorageTestOp_Prepare,
-                       kMemfaultCoredumpStorageResult_PlatformApiFail,
-                       0, info.size);
+                       kMemfaultCoredumpStorageResult_PlatformApiFail, 0, info.size);
     return false;
   }
 
@@ -110,12 +107,11 @@ bool memfault_coredump_storage_debug_test_begin(void) {
 
   if (!memfault_platform_coredump_storage_erase(0, info.size)) {
     prv_record_failure(kMemfaultCoredumpStorageTestOp_Erase,
-                       kMemfaultCoredumpStorageResult_PlatformApiFail,
-                       0, info.size);
+                       kMemfaultCoredumpStorageResult_PlatformApiFail, 0, info.size);
     return false;
   }
 
-  for (size_t i = 0; i < info.size; i+= sizeof(s_read_buf)) {
+  for (size_t i = 0; i < info.size; i += sizeof(s_read_buf)) {
     prv_scrub_read_buf();
 
     const size_t bytes_to_read = MEMFAULT_MIN(sizeof(s_read_buf), info.size - i);
@@ -125,7 +121,7 @@ bool memfault_coredump_storage_debug_test_begin(void) {
       return false;
     }
 
-    for (size_t j = 0; j <  bytes_to_read; j++) {
+    for (size_t j = 0; j < bytes_to_read; j++) {
       if (!prv_verify_erased(s_read_buf[j])) {
         prv_record_failure(kMemfaultCoredumpStorageTestOp_Erase,
                            kMemfaultCoredumpStorageResult_CompareFailed, j + i, 1);
@@ -142,28 +138,22 @@ bool memfault_coredump_storage_debug_test_begin(void) {
   // the 12 byte header which is written last. We will simulate that behavior here.
   //
 
-  static const uint8_t pattern1[] = {
-    0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xa9, 0xaa, 0xab };
+  static const uint8_t pattern1[] = { 0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5,
+                                      0xa6, 0xa7, 0xa8, 0xa9, 0xaa, 0xab };
   MEMFAULT_STATIC_ASSERT(sizeof(pattern1) < sizeof(s_read_buf), "pattern1 is too long");
 
-  static const uint8_t pattern2[] = { 0x5f, 0x5e, 0x5d, 0x5c, 0x5b, 0x5a, 0x59};
+  static const uint8_t pattern2[] = { 0x5f, 0x5e, 0x5d, 0x5c, 0x5b, 0x5a, 0x59 };
   MEMFAULT_STATIC_ASSERT(sizeof(pattern2) < sizeof(s_read_buf), "pattern2 is too long");
 
   struct {
     const uint8_t *pattern;
     size_t len;
   } patterns[] = {
-    {
-      .pattern = pattern1,
-      .len = sizeof(pattern1)
-    },
-    {
-      .pattern = pattern2,
-      .len = sizeof(pattern2)
-    },
+    { .pattern = pattern1, .len = sizeof(pattern1) },
+    { .pattern = pattern2, .len = sizeof(pattern2) },
   };
 
-  #define MEMFAULT_COREDUMP_STORAGE_HEADER_LEN 12
+#define MEMFAULT_COREDUMP_STORAGE_HEADER_LEN 12
   MEMFAULT_STATIC_ASSERT(sizeof(pattern1) == MEMFAULT_COREDUMP_STORAGE_HEADER_LEN,
                          "pattern1 length must match coredump header size");
 
@@ -222,7 +212,7 @@ bool memfault_coredump_storage_debug_test_begin(void) {
     offset += pattern_len;
   }
 
-  s_test_result = (sMemfaultCoredumpStorageTestResult) {
+  s_test_result = (sMemfaultCoredumpStorageTestResult){
     .result = kMemfaultCoredumpStorageResult_Success,
   };
   return true;
@@ -251,25 +241,29 @@ static bool prv_verify_coredump_clear_operation(void) {
   return true;
 }
 
-static void prv_hexdump(const char *prefix, const uint8_t *buf, size_t buf_len) {
-  #define MAX_BUF_LEN (sizeof(s_read_buf) * 2 + 1)
+static void prv_log_error_hexdump(const char *prefix, const uint8_t *buf, size_t buf_len) {
+  // s_read_buf is the largest buffer passed to this function, use this to determine max char buffer
+  // size for hex representation
+#define MAX_BUF_LEN (sizeof(s_read_buf) * 2 + 1)
   char hex_buffer[MAX_BUF_LEN];
   for (uint32_t j = 0; j < buf_len; ++j) {
-    sprintf(&hex_buffer[j * 2], "%02x", buf[j]);
+    // Convert byte into hex chars, write up to 3 chars (2 hex digits, 1 null)
+    // MAX_BUF_LEN guarantees enough space to safely store output chars in hex_buffer
+    snprintf(&hex_buffer[j * 2], 3, "%02x", buf[j]);
   }
   // make sure buffer is NUL terminated even if buf_len = 0
   hex_buffer[buf_len * 2] = '\0';
-  MEMFAULT_LOG_INFO("%s: %s", prefix, hex_buffer);
+  MEMFAULT_LOG_ERROR("%s: %s", prefix, hex_buffer);
 }
 
 bool memfault_coredump_storage_debug_test_finish(void) {
-  if ((s_test_result.result == kMemfaultCoredumpStorageResult_Success)
-      && prv_verify_coredump_clear_operation()) {
+  if ((s_test_result.result == kMemfaultCoredumpStorageResult_Success) &&
+      prv_verify_coredump_clear_operation()) {
     MEMFAULT_LOG_INFO("Coredump Storage Verification Passed");
     return true;
   }
 
-  MEMFAULT_LOG_INFO("Coredump Storage Verification Failed");
+  MEMFAULT_LOG_ERROR("Coredump Storage Verification Failed");
 
   const char *op_suffix;
   switch (s_test_result.op) {
@@ -320,18 +314,18 @@ bool memfault_coredump_storage_debug_test_finish(void) {
       break;
   }
 
-  MEMFAULT_LOG_INFO("%s memfault_platform_coredump_storage_%s() test", reason_str, op_suffix);
-  MEMFAULT_LOG_INFO("Storage offset: 0x%08"PRIx32", %s size: %d", s_test_result.offset, op_suffix,
-                    (int)s_test_result.size);
+  MEMFAULT_LOG_ERROR("%s memfault_platform_coredump_storage_%s() test", reason_str, op_suffix);
+  MEMFAULT_LOG_ERROR("Storage offset: 0x%08" PRIx32 ", %s size: %d", s_test_result.offset,
+                     op_suffix, (int)s_test_result.size);
 
   if (s_test_result.result == kMemfaultCoredumpStorageResult_CompareFailed) {
     if (s_test_result.expected_buf != NULL) {
-      prv_hexdump("Expected", s_test_result.expected_buf, s_test_result.size);
-    } else if (s_test_result.op !=  kMemfaultCoredumpStorageTestOp_Write) {
-      MEMFAULT_LOG_INFO("expected erase pattern is 0xff or 0x00");
+      prv_log_error_hexdump("Expected", s_test_result.expected_buf, s_test_result.size);
+    } else if (s_test_result.op != kMemfaultCoredumpStorageTestOp_Write) {
+      MEMFAULT_LOG_ERROR("expected erase pattern is 0xff or 0x00");
     }
 
-    prv_hexdump("Actual  ", s_read_buf, s_test_result.size);
+    prv_log_error_hexdump("Actual  ", s_read_buf, s_test_result.size);
   }
 
   return false;

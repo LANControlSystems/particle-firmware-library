@@ -3,7 +3,7 @@
 //! @file
 //!
 //! Copyright (c) Memfault, Inc.
-//! See License.txt for details
+//! See LICENSE for details
 //!
 //! @brief
 //! C Implementation of the CRC-16 CCITT (xmodem) polynomial:
@@ -25,13 +25,14 @@ extern "C" {
 //! The CRC is used in a wide spread of protocols (i.e HDLC, ISDN) and has a high probability of
 //! being able to detect errors when used like a checksum
 //!
-//! @param crc_initial_value Use MEMFAULT_CRC16_CCITT_INITIAL_VALUE when computing a new checksum over
+//! @param crc_initial_value Use MEMFAULT_CRC16_CCITT_INITIAL_VALUE when computing a new checksum
+//! over
 //!  the entire data set passed in. Use the current CRC16-CCITT value if computing over a data set
 //!  incrementally
 //! @param data The data to compute the crc over
 //! @param data_len_bytes the length of the data to compute the crc over, in bytes
-uint16_t memfault_crc16_ccitt_compute(
-    uint16_t crc_initial_value, const void *data, size_t data_len_bytes);
+uint16_t memfault_crc16_ccitt_compute(uint16_t crc_initial_value, const void *data,
+                                      size_t data_len_bytes);
 
 #ifdef __cplusplus
 }
