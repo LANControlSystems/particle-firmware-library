@@ -33,6 +33,11 @@ using namespace std::placeholders;
 // battery backed SRAM - preserved over a reboot
 static retained uint8_t s_reboot_tracking[MEMFAULT_REBOOT_TRACKING_REGION_SIZE];
 
+// IMPORTANT - update these for each device_os version
+// dump device os elf - arm-none-eabi-readelf --symbols to find values
+/*uint32_t __rtos_capture_start = 0x1003b4c0;
+uint32_t __rtos_capture_end = 0x1003bee0;*/
+
 static char s_hardware_version[32] = "Unset-Hw";
 static char s_system_version[32] = MEMFAULT_EXPAND_AND_QUOTE(SYSTEM_VERSION_STRING);
 static bool s_battery_is_discharging = false;
@@ -532,6 +537,14 @@ memfault_platform_coredump_get_regions(const sCoredumpCrashInfo *crash_info,
 
 #if MEMFAULT_PARTICLE_PORT_COREDUMP_TASK_COLLECTION_ENABLE
   const size_t num_coredump_regions = MEMFAULT_ARRAY_SIZE(s_coredump_regions);
+
+  //First capture the freeRTOS task regions
+  /*const size_t memfault_region_size = __rtos_capture_end -
+       __rtos_capture_start;
+
+  s_coredump_regions[region_idx] = MEMFAULT_COREDUMP_MEMORY_REGION_INIT(
+      (void*)__rtos_capture_start, memfault_region_size);
+  region_idx++;*/
 
   // capture the threads and stacks (if we have space!)
   // First we will try to store all the task TCBs. This way if we run out of
